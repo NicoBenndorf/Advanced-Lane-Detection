@@ -1,2 +1,6 @@
 # ignore checkpoints
 .ipynb_checkpoints/
+
+# images
+output_images/*
+test_videos_output/*
