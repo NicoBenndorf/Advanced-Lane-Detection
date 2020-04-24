@@ -29,6 +29,8 @@ class lane_detection:
     iteration_cnt = 0
     print_output = False
     write_output = False
+    left_fit = np.array([0.0, 0.0, 0.0])
+    right_fit = np.array([0.0, 0.0, 0.0])
     def init(self):
         pass
         
@@ -210,6 +212,8 @@ class lane_detection:
     ## Detect lane pixels and fit to find the lane boundary.
     # search lanes from scratch
     def find_lane_pixels(self, binary_warped):
+        success_left = True
+        success_right = True
         # Take a histogram of the bottom half of the image
         histogram = np.sum(binary_warped[binary_warped.shape[0]//2:,:], axis=0)
         # Create an output image to draw on and visualize the result
@@ -287,37 +291,65 @@ class lane_detection:
         rightx = nonzerox[right_lane_inds]
         righty = nonzeroy[right_lane_inds]
 
-        return leftx, lefty, rightx, righty, out_img, img_lanes
+        if leftx.size < 50:
+            success_left = False
+            print("!!! Error: not enough left lane points found - unstable behavior !!!")
+        if rightx.size < 50:
+            success_right = False
+            print("!!! Error: not enough right lane points found - unstable behavior !!!")
+        return leftx, lefty, rightx, righty, out_img, img_lanes, success_left, success_right
 
     def fit_polynomial(self, binary_warped):
         # Find our lane pixels first
-        leftx, lefty, rightx, righty, out_img, img_lanes = self.find_lane_pixels(binary_warped)
-
-        # Fit a second order polynomial to each using `np.polyfit` #
-        left_fit = np.polyfit(lefty, leftx, 2)
-        right_fit = np.polyfit(righty, rightx, 2)
+        leftx, lefty, rightx, righty, out_img, img_lanes, success_left, success_right = self.find_lane_pixels(binary_warped)
 
         # Generate x and y values for plotting
         ploty = np.linspace(0, binary_warped.shape[0]-1, binary_warped.shape[0] )
-        try:
-            left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
-            right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
-        except TypeError:
-            # Avoids an error if `left` and `right_fit` are still none or incorrect
-            print('The function failed to fit a line!')
-            left_fitx = 1*ploty**2 + 1*ploty
-            right_fitx = 1*ploty**2 + 1*ploty
 
-        # Visualization #
-        # Colors in the left and right lane regions
-        out_img[lefty, leftx] = [255, 0, 0]
-        out_img[righty, rightx] = [0, 0, 255]
-        img_lanes[lefty, leftx] = [255, 0, 0]
-        img_lanes[righty, rightx] = [0, 0, 255]
+        # left
+        if success_left:
+            # Fit a second order polynomial to each using `np.polyfit` #
+            left_fit = np.polyfit(lefty, leftx, 2)
+       
+            try:
+                left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
+            except TypeError:
+                # Avoids an error if `left` and `right_fit` are still none or incorrect
+                print('The function failed to fit a line!')
+                left_fitx = 1*ploty**2 + 1*ploty
 
-        # Plots the left and right polynomials on the lane lines
-        plt.plot(left_fitx, ploty, color='yellow')
-        plt.plot(right_fitx, ploty, color='yellow')
+            # Visualization #
+            # Colors in the left and right lane regions
+            out_img[lefty, leftx] = [255, 0, 0]
+            img_lanes[lefty, leftx] = [255, 0, 0]
+            # Plots the left and right polynomials on the lane lines
+            plt.plot(left_fitx, ploty, color='yellow')
+        else:
+            left_fit = 0
+            left_fitx = 0
+
+        # right
+        if success_right:
+            # Fit a second order polynomial to each using `np.polyfit` #
+            right_fit = np.polyfit(righty, rightx, 2)
+
+            try:
+                right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
+            except TypeError:
+                # Avoids an error if `left` and `right_fit` are still none or incorrect
+                print('The function failed to fit a line!')
+                right_fitx = 1*ploty**2 + 1*ploty
+
+            # Visualization #
+            # Colors in the left and right lane regions
+            out_img[righty, rightx] = [0, 0, 255]
+            img_lanes[righty, rightx] = [0, 0, 255]
+            
+            # Plots the left and right polynomials on the lane lines
+            plt.plot(right_fitx, ploty, color='yellow')
+        else:
+            right_fit = 0
+            right_fitx = 0
 
         return out_img, img_lanes, left_fit, right_fit, left_fitx, right_fitx, ploty
 
@@ -338,6 +370,7 @@ class lane_detection:
         # HYPERPARAMETER
         # Choose the width of the margin around the previous polynomial to search
         # The quiz grader expects 100 here, but feel free to tune on your own!
+        success = True
         margin = 100
 
         # Grab activated pixels
@@ -347,6 +380,11 @@ class lane_detection:
         
         # Set the area of search based on activated x-values
         # within the +/- margin of our polynomial function 
+
+        # check if fit_last polylines are valid values
+        if (type(left_fit_last) != tuple) | (type(right_fit_last) != tuple):
+            # reset and start searching from scratch 
+            return 0, 0, 0, 0, 0, 0, 0, False
         left_lane_inds = ((nonzerox >= (left_fit_last[0]*(nonzeroy**2) + left_fit_last[1]*nonzeroy + left_fit_last[2] - margin)) & 
                         (nonzerox < (left_fit_last[0]*(nonzeroy**2) + left_fit_last[1]*nonzeroy + left_fit_last[2] + margin)))
         right_lane_inds = ((nonzerox >= (right_fit_last[0]*(nonzeroy**2) + right_fit_last[1]*nonzeroy +  right_fit_last[2] - margin)) & 
@@ -357,53 +395,60 @@ class lane_detection:
         rightx = nonzerox[right_lane_inds]
         righty = nonzeroy[right_lane_inds]
 
-        # Fit new polynomials
-        left_fitx, right_fitx, ploty, left_fit_new, right_fit_new = fit_poly(binary_warped.shape, leftx, lefty, rightx, righty)
+        print("leftx.size: ",leftx.size)
+        print("rightx.size: ", rightx.size)
+        if (leftx.size > 500) & (lefty.size > 500) & (rightx.size > 500) & (righty.size > 500):
+            # fit new polynomials
+            left_fitx, right_fitx, ploty, left_fit_new, right_fit_new = ld.fit_poly(binary_warped.shape, leftx, lefty, rightx, righty)
         
-        ## Visualization ##
-        # Create an image to draw on and an image to show the selection window
-        out_img = np.dstack((binary_warped, binary_warped, binary_warped))*255
-        window_img = np.zeros_like(out_img)
-        
-        # Color in left and right line pixels
-        out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
-        out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
-        
-        # Generate a polygon to illustrate the search window area
-        # And recast the x and y points into usable format for cv2.fillPoly()
-        left_line_window1 = np.array([np.transpose(np.vstack([left_fitx-margin, ploty]))])
-        left_line_window2 = np.array([np.flipud(np.transpose(np.vstack([left_fitx+margin, 
-                                ploty])))])
-        left_line_pts = np.hstack((left_line_window1, left_line_window2))
-        right_line_window1 = np.array([np.transpose(np.vstack([right_fitx-margin, ploty]))])
-        right_line_window2 = np.array([np.flipud(np.transpose(np.vstack([right_fitx+margin, 
-                                ploty])))])
-        right_line_pts = np.hstack((right_line_window1, right_line_window2))
+            ## Visualization ##
+            # Create an image to draw on and an image to show the selection window
+            out_img = np.dstack((binary_warped, binary_warped, binary_warped))*255
+            window_img = np.zeros_like(out_img)
+            
+            # Color in left and right line pixels
+            out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
+            out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
+            
+            # Generate a polygon to illustrate the search window area
+            # And recast the x and y points into usable format for cv2.fillPoly()
+            left_line_window1 = np.array([np.transpose(np.vstack([left_fitx-margin, ploty]))])
+            left_line_window2 = np.array([np.flipud(np.transpose(np.vstack([left_fitx+margin, 
+                                    ploty])))])
+            left_line_pts = np.hstack((left_line_window1, left_line_window2))
+            right_line_window1 = np.array([np.transpose(np.vstack([right_fitx-margin, ploty]))])
+            right_line_window2 = np.array([np.flipud(np.transpose(np.vstack([right_fitx+margin, 
+                                    ploty])))])
+            right_line_pts = np.hstack((right_line_window1, right_line_window2))
 
-        # Draw the lane onto the warped blank image
-        cv2.fillPoly(window_img, np.int_([left_line_pts]), (0,255, 0))
-        cv2.fillPoly(window_img, np.int_([right_line_pts]), (0,255, 0))
-        result = cv2.addWeighted(out_img, 1, window_img, 0.3, 0)
-        # Plot the polynomial lines onto the image
-        plt.plot(left_fitx, ploty, color='yellow')
-        plt.plot(right_fitx, ploty, color='yellow')
-        ## End visualization steps ##
+            # Draw the lane onto the warped blank image
+            cv2.fillPoly(window_img, np.int_([left_line_pts]), (0,255, 0))
+            cv2.fillPoly(window_img, np.int_([right_line_pts]), (0,255, 0))
+            result = cv2.addWeighted(out_img, 1, window_img, 0.3, 0)
+            # Plot the polynomial lines onto the image
+            plt.plot(left_fitx, ploty, color='yellow')
+            plt.plot(right_fitx, ploty, color='yellow')
+            ## End visualization steps ##
+        else:
+            # reset and start searching from scratch 
+            return 0, 0, 0, 0, 0, 0, 0, False
 
-        
-        return result, out_img, left_fit_new, right_fit_new, left_fitx, right_fitx, ploty
+        return result, out_img, left_fit_new, right_fit_new, left_fitx, right_fitx, ploty, success
 
     def detect_lanes(self, _binary_warped):
         lane_detection.iteration_cnt += 1
         if lane_detection.iteration_cnt <= 1:
             # searching lane lines from scratch (sliding window) for startup and fallback
-            img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = self.fit_polynomial(_binary_warped)
+            img_fittet_lanes, lanes, self.left_fit, self.right_fit, self.left_fitx, self.right_fitx, ploty = self.fit_polynomial(_binary_warped)
         else:
             # searching lane lines from prior 
-            img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = self.search_around_poly(_binary_warped, left_fit, right_fit)
+            img_fittet_lanes, lanes, self.left_fit, self.right_fit, self.left_fitx, self.right_fitx, ploty, success_search_from_prior = self.search_around_poly(_binary_warped, self.left_fit, self.right_fit)
+            if not success_search_from_prior: # start searching from scratch
+                img_fittet_lanes, lanes, self.left_fit, self.right_fit, self.left_fitx, self.right_fitx, ploty = self.fit_polynomial(_binary_warped)    
         if self.print_output:
             plt.imshow(img_fittet_lanes)
             plt.show()
-        return img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty
+        return img_fittet_lanes, lanes, self.left_fit, self.right_fit, self.left_fitx, self.right_fitx, ploty
 
     ## Determine the curvature of the lane and vehicle position with respect to center.
     def measure_curvature_real(self, y_eval, left_fit_cr, right_fit_cr):
@@ -416,9 +461,14 @@ class lane_detection:
         xm_per_pix = 3.7/611 # 611(605-620)pixel; meters per pixel in x dimension
         
         # Implement the calculation of R_curve (radius of curvature)
-        left_curverad = (1+(2*left_fit_cr[0]*y_eval*ym_per_pix+left_fit_cr[1])**2)**(3/2)/(np.absolute(2*left_fit_cr[0]))  ## Implement the calculation of the left line here
-        right_curverad = (1+(2*right_fit_cr[0]*y_eval*ym_per_pix+right_fit_cr[1])**2)**(3/2)/(np.absolute(2*right_fit_cr[0]))  ## Implement the calculation of the right line here
-        
+        if type(left_fit_cr) == tuple:
+            left_curverad = (1+(2*left_fit_cr[0]*y_eval*ym_per_pix+left_fit_cr[1])**2)**(3/2)/(np.absolute(2*left_fit_cr[0]))  ## Implement the calculation of the left line here
+        else:
+            left_curverad = 0
+        if type(right_fit_cr) == tuple:
+            right_curverad = (1+(2*right_fit_cr[0]*y_eval*ym_per_pix+right_fit_cr[1])**2)**(3/2)/(np.absolute(2*right_fit_cr[0]))  ## Implement the calculation of the right line here
+        else:
+            right_curverad = 0
         return left_curverad, right_curverad
     
     ## Warp the detected lane boundaries back onto the original image.
@@ -429,11 +479,11 @@ class lane_detection:
 
         # Recast the x and y points into usable format for cv2.fillPoly()
         pts_left = np.array([np.transpose(np.vstack([_left_fitx, _ploty]))])
-        pts_right = np.array([np.flipud(np.transpose(np.vstack([_right_fitx, _ploty])))])
-        pts = np.hstack((pts_left, pts_right))
+        # pts_right = np.array([np.flipud(np.transpose(np.vstack([_right_fitx, _ploty])))])
+        # pts = np.hstack((pts_left, pts_right))
 
         # Draw the lane onto the warped blank image
-        cv2.fillPoly(color_warp, np.int_([pts]), (0,255, 0))
+        cv2.fillPoly(color_warp, np.int_([pts_left]), (0,255, 0))
 
         # Warp the blank back to original image space using inverse perspective matrix (Minv)
         rewarp_annotated = cv2.warpPerspective(color_warp, _perspective_Minv, (_binary_warped.shape[1], _binary_warped.shape[0])) 
@@ -451,7 +501,7 @@ class lane_detection:
 
     ## Output visual display of the lane boundaries and numerical estimation of lane curvature and vehicle position
     # warp output back to original perspective (for overlay annotation)
-    def annotate_lane_markings(self, _img_result_lane, _lanes, _perspective_Minv):
+    def annotate_lane_markings(self, _img_result_lane, _lanes, _perspective_Minv, _left_curverad, _right_curverad):
         rewarp_lane_markings = cv2.warpPerspective(_lanes, _perspective_Minv, (_img_result_lane.shape[1], _img_result_lane.shape[0])) 
         result_annotated = cv2.addWeighted(_img_result_lane, 0.7, rewarp_lane_markings, 1, 0)
 
@@ -462,7 +512,7 @@ class lane_detection:
         fontscale = 0.8
         color = (0, 0, 255) 
         thickness = 2
-        text_curvature = f"left_curverad: {left_curverad}, right_curverad: {right_curverad}"
+        text_curvature = f"left_curverad: {_left_curverad}, right_curverad: {_right_curverad}"
 
         cv2.putText(result_annotated, text_curvature,(x,y),font,fontscale,color,thickness)
         result_annotated_bgr = cv2.cvtColor(result_annotated, cv2.COLOR_RGB2BGR)
@@ -473,18 +523,29 @@ class lane_detection:
         if self.write_output:
             cv2.imwrite("output_images/result_2.jpg", result_annotated_bgr)
         return result_annotated
+    
+
+    ## Video lane detection ##
+    def process_image(self, _img_input):
+        img_undist = ld.undistort_image(_img_input, mtx, dist)
+        img_combined_binary = ld.image_to_thresholded_binary(img_undist)
+        img_binary_warped, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
+        img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lanes(img_binary_warped)
+        left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
+        img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
+        result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv, left_curverad, right_curverad)
+        return result_annotated
 
     def execute_video_pipeline(self):
-
-        process_image.counter = 0
         white_output = 'test_videos_output/project_video.mp4'
         ## To speed up the testing process you may want to try your pipeline on a shorter subclip of the video
         ## To do so add .subclip(start_second,end_second) to the end of the line below
-        ## Where start_second and end_second are integer values representing the start and end of the subclip
+        ## Where start_second and end_second are integer va|ues representing the start and end of the subclip
         ## You may also uncomment the following line for a subclip of the first 5 seconds
-        # clip1 = VideoFileClip("project_video.mp4").subclip(20,30)
-        clip1 = VideoFileClip("project_video.mp4")
-        white_clip = clip1.fl_image(process_image) #NOTE: this function expects color images!!
+        clip1 = VideoFileClip("project_video.mp4").subclip(0,10)
+        # clip1 = VideoFileClip("project_video.mp4").subclip(24,30)
+        # clip1 = VideoFileClip("project_video.mp4")
+        white_clip = clip1.fl_image(self.process_image) #NOTE: this function expects color images!!
         white_clip.write_videofile(white_output, audio=False)    
 #%%
 if __name__ == "__main__":
@@ -492,21 +553,35 @@ if __name__ == "__main__":
     plt.rcParams["figure.figsize"] = (25,15)
 
     ld = lane_detection()
-    # ld.print_output = True
+    ld.print_output = False
+    video_pipeline = True
     # initialisation
     cret, mtx, dist, rvecs, tvecs = ld.compute_camera_calibration()
 
-    # load input image
-    img_input = plt.imread('test_images/test1.jpg')
-    img_undist = ld.undistort_image(img_input, mtx, dist)
-    img_combined_binary = ld.image_to_thresholded_binary(img_undist)
-    img_binary_warped, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
-    #check fct:
-    img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lanes(img_binary_warped)
-    left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
-    img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
-    result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv)
+#%%
+    if video_pipeline:
+        ld.execute_video_pipeline()
+    else:
+        # load input image
+        img_input = plt.imread('test_images/test7.jpg')
+        img_undist = ld.undistort_image(img_input, mtx, dist)
+        img_combined_binary = ld.image_to_thresholded_binary(img_undist)
+        img_binary_warped, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
+        img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lanes(img_binary_warped)
+        left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
+        img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
+        result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv, left_curverad, right_curverad)
+            
 
+        # load input image
+        img_undist = ld.undistort_image(img_input, mtx, dist)
+        img_combined_binary = ld.image_to_thresholded_binary(img_undist)
+        img_binary_warped, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
+        img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lanes(img_binary_warped)
+        left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
+        img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
+        result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv, left_curverad, right_curverad)
+        
 
 
 
