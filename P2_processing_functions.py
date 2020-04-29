@@ -24,7 +24,10 @@ def plot_2(_img_1, _img_2, heading_1="", heading_2=""):
     ax2.imshow(_img_2, cmap='gray')
     ax2.set_title(heading_2, fontsize=50)
     plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
-
+    
+def draw_line(self, img, x1, y1, x2, y2, color=[255, 0, 0], thickness=3):
+        return cv2.line(img, (x1, y1), (x2, y2), color, thickness)
+        
 class lane_detection:
     iteration_cnt = 0
     print_output = False
@@ -146,11 +149,11 @@ class lane_detection:
     def image_to_thresholded_binary(self, _img_undist):
 
         # filter parameters
-        _sobelx_low = 16
+        _sobelx_low = 4
         _sobelx_high = 255
         _sobelx_filter = 3
 
-        _sobely_low = 36
+        _sobely_low = 9
         _sobely_high = 255
         _sobely_filter = 3
 
@@ -159,10 +162,10 @@ class lane_detection:
         _magn_filter = 3
 
         _direction_low = 229
-        _direction_high = 287
+        _direction_high = 269
         _direction_filter = 15
         _direction_avg_filter = 11
-        _direction_thresh = 143
+        _direction_thresh = 179
 
         # use functions to generate binary image
         _sobelx_binary = self.abs_sobel_thresh(_img_undist, 'x', _sobelx_filter, (_sobelx_low, _sobelx_high))
@@ -174,7 +177,8 @@ class lane_detection:
 
         # combine results of different filters
         combined_binary = np.zeros_like(_sobelx_binary)
-        combined_binary[((_sobelx_binary == 255) & (_sobely_binary == 255)) | ((_mag_binary == 255) & (_thres_img == 255))] = 255
+        # combined_binary[((_sobelx_binary == 255) & (_sobely_binary == 255)) | ((_mag_binary == 255) & (_thres_img == 255))] = 255
+        combined_binary[((_sobelx_binary == 255) & (_sobely_binary == 255)) | (_thres_img == 255)] = 255
 
         if self.print_output:
             plt.imshow(combined_binary, cmap='gray')
@@ -202,12 +206,9 @@ class lane_detection:
             plt.imshow(cvt_bgr2rgb(img_warped))
             plt.show()
         # debugging: draw_lines to tune distortion
-        #     draw_line(warped, 312,img_undist.shape[0], 312,0, [255, 255, 255], 3)
-        #     draw_line(warped, 940,img_undist.shape[0], 940,0, [255, 255, 255], 3)
+            draw_line(img_warped, 312,img_undist.shape[0], 312,0, [255, 255, 255], 3)
+            draw_line(img_warped, 940,img_undist.shape[0], 940,0, [255, 255, 255], 3)
         return img_warped, M, Minv
-
-    def draw_line(self, img, x1, y1, x2, y2, color=[255, 0, 0], thickness=3):
-        return cv2.line(img, (x1, y1), (x2, y2), color, thickness)
 
     ## Detect lane pixels and fit to find the lane boundary.
     # search lanes from scratch
@@ -496,15 +497,22 @@ class lane_detection:
         result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv, left_curverad, right_curverad)
         return result_annotated
 
+    def save_frames_of_video(self, _frame):
+        self.iteration_cnt += 1
+        _frame_BGR = cv2.cvtColor(_frame, cv2.COLOR_RGB2BGR)
+        cv2.imwrite(f"video_frames/frame{self.iteration_cnt}.jpg", _frame_BGR)
+        return _frame
+
     def execute_video_pipeline(self):
         white_output = 'test_videos_output/project_video.mp4'
         ## To speed up the testing process you may want to try your pipeline on a shorter subclip of the video
         ## To do so add .subclip(start_second,end_second) to the end of the line below
         ## Where start_second and end_second are integer va|ues representing the start and end of the subclip
         ## You may also uncomment the following line for a subclip of the first 5 seconds
-        clip1 = VideoFileClip("project_video.mp4").subclip(0,5)
-        # clip1 = VideoFileClip("project_video.mp4")
+        # clip1 = VideoFileClip("project_video.mp4").subclip(24,26)
+        clip1 = VideoFileClip("project_video.mp4")
         white_clip = clip1.fl_image(self.process_image) #NOTE: this function expects color images!!
+        # white_clip = clip1.fl_image(self.save_frames_of_video) #NOTE: this function expects color images!!
         white_clip.write_videofile(white_output, audio=False)    
 #%%
 if __name__ == "__main__":
@@ -522,25 +530,27 @@ if __name__ == "__main__":
         ld.execute_video_pipeline()
     else:
         # load input image
-        img_input = plt.imread('test_images/test7.jpg')
+        img_input = plt.imread('test_images/straight_lines2.jpg')
         img_undist = ld.undistort_image(img_input, mtx, dist)
         img_combined_binary = ld.image_to_thresholded_binary(img_undist)
         img_binary_warped, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
-        img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lanes(img_binary_warped)
-        left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
-        img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
-        result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv, left_curverad, right_curverad)
+        # img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lanes(img_binary_warped)
+        # left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
+        # img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
+        # result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv, left_curverad, right_curverad)
             
 
-        # load input image
-        img_undist = ld.undistort_image(img_input, mtx, dist)
-        img_combined_binary = ld.image_to_thresholded_binary(img_undist)
-        img_binary_warped, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
-        img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lanes(img_binary_warped)
-        left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
-        img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
-        result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv, left_curverad, right_curverad)
+        # # load input image
+        # img_undist = ld.undistort_image(img_input, mtx, dist)
+        # img_combined_binary = ld.image_to_thresholded_binary(img_undist)
+        # img_binary_warped, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
+        # img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lanes(img_binary_warped)
+        # left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
+        # img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
+        # result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv, left_curverad, right_curverad)
         
 
 
 
+
+# %%
