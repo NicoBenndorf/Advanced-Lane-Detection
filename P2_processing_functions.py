@@ -148,34 +148,65 @@ class lane_detection:
 
     def image_to_thresholded_binary(self, _img_undist):
 
-        # filter parameters
-        _sobelx_low = 4 #(12,18)
-        _sobelx_high = 255
+        # filter parameters 1
+        _sobelx_low = 5 #(12,18)
+        _sobelx_high = 50
         _sobelx_filter = 3
 
-        _sobely_low = 4 #(24,0)
-        _sobely_high = 255
+        _sobely_low = 6 #(24,0)
+        _sobely_high = 50
         _sobely_filter = 3
 
         _magn_low = 15 #(x, 103)
-        _magn_high = 255 
+        _magn_high = 0 
         _magn_filter = 3
 
         _direction_low = 229
-        _direction_high = 0 #269 (0,0)
+        _direction_high = 287 #269 (0,0)
         _direction_filter = 15
         _direction_avg_filter = 11 #(1)
-        _direction_thresh = 179
+        _direction_thresh = 225
 
 
-        _post_avg_filter = 3#9 (x,5)
+        _post_avg_filter = 1#9 (x,5)
         _post_thresh = 126#80  (x, 158)
 
-        # use functions to generate binary image
-        _sobelx_binary = self.abs_sobel_thresh(_img_undist, 'x', _sobelx_filter, (_sobelx_low, _sobelx_high))
-        _sobely_binary = self.abs_sobel_thresh(_img_undist, 'y', _sobely_filter, (_sobely_low, _sobely_high))
-        _mag_binary = self.abs_magn_thresh(_img_undist, _magn_filter, (_magn_low, _magn_high))
-        _dir_binary = self.abs_dir_threshold(_img_undist, _direction_filter, (_direction_low, _direction_high))
+        # filter parameters 2
+        _2_sobelx_low =  18#(12,18)
+        _2_sobelx_high = 255
+        _2_sobelx_filter = 3
+
+        _2_sobely_low = 0 #(24,0)
+        _2_sobely_high = 255
+        _2_sobely_filter = 3
+
+        _2_magn_low = 103 #(x, 103)
+        _2_magn_high = 255 
+        _2_magn_filter = 3
+
+        _2_direction_low = 229
+        _2_direction_high = 0 #269 (0,0)
+        _2_direction_filter = 15
+        _2_direction_avg_filter = 11 #(1)
+        _2_direction_thresh = 255
+
+        _2_post_avg_filter = 5#9 (x,5)
+        _2_post_thresh = 158#80  (x, 158)
+
+        # cut image in two sections
+        crop_y_border = _img_undist.shape[0]//2 + 120
+
+        _img_undist_1 = _img_undist.copy()
+        _img_undist_2 = _img_undist.copy()
+        _img_undist_1 = _img_undist_1[0:crop_y_border, 0:_img_undist_1.shape[1]]
+        _img_undist_2 = _img_undist_2[crop_y_border:_img_undist_2.shape[0], 0:_img_undist_2.shape[1]]
+        
+
+        # use functions to generate binary image 1
+        _sobelx_binary = self.abs_sobel_thresh(_img_undist_1, 'x', _sobelx_filter, (_sobelx_low, _sobelx_high))
+        _sobely_binary = self.abs_sobel_thresh(_img_undist_1, 'y', _sobely_filter, (_sobely_low, _sobely_high))
+        _mag_binary = self.abs_magn_thresh(_img_undist_1, _magn_filter, (_magn_low, _magn_high))
+        _dir_binary = self.abs_dir_threshold(_img_undist_1, _direction_filter, (_direction_low, _direction_high))
         _avg_img = self.abs_average(_dir_binary, _direction_avg_filter)
         _thres_img = self.abs_threshold(_avg_img, _direction_thresh)
 
@@ -187,12 +218,31 @@ class lane_detection:
         _post_avg_img = self.abs_average(combined_binary, _post_avg_filter)
         _post_thres_img = self.abs_threshold(_post_avg_img, _post_thresh)
 
+        # use functions to generate binary image 2
+        _2_sobelx_binary = self.abs_sobel_thresh(_img_undist_2, 'x', _2_sobelx_filter, (_2_sobelx_low, _2_sobelx_high))
+        _2_sobely_binary = self.abs_sobel_thresh(_img_undist_2, 'y', _2_sobely_filter, (_2_sobely_low, _2_sobely_high))
+        _2_mag_binary = self.abs_magn_thresh(_img_undist_2, _2_magn_filter, (_2_magn_low, _2_magn_high))
+        _2_dir_binary = self.abs_dir_threshold(_img_undist_2, _2_direction_filter, (_2_direction_low, _2_direction_high))
+        _2_avg_img = self.abs_average(_2_dir_binary, _2_direction_avg_filter)
+        _2_thres_img = self.abs_threshold(_2_avg_img, _2_direction_thresh)
+
+        # combine results of different filters
+        _2_combined_binary = np.zeros_like(_2_sobelx_binary)
+        # combined_binary[((_2_sobelx_binary == 255) & (_2_sobely_binary == 255)) | ((_2_mag_binary == 255) & (_2_thres_img == 255))] = 255
+        _2_combined_binary[((_2_sobelx_binary == 255) & (_2_sobely_binary == 255)) | (_2_thres_img == 255)] = 255
+
+        _2_post_avg_img = self.abs_average(_2_combined_binary, _post_avg_filter)
+        _2_post_thres_img = self.abs_threshold(_2_post_avg_img, _post_thresh)
+
+        concatenated_binary = np.concatenate((_post_thres_img, _2_post_thres_img), axis=0)
+        # concatenated_binary = _2_post_thres_img
+
         if self.print_output:
-            plt.imshow(_post_thres_img, cmap='gray')
+            plt.imshow(concatenated_binary, cmap='gray')
             plt.show()
         if self.write_output:
-            cv2.imwrite("output_images/combined_binary.jpg", _post_thres_img)
-        return combined_binary
+            cv2.imwrite("output_images/combined_binary.jpg", concatenated_binary)
+        return concatenated_binary
 
     ## Apply a perspective transform to rectify binary image (bird-eye view)
     def unwarp(self, _img):
@@ -213,8 +263,8 @@ class lane_detection:
             plt.imshow(cvt_bgr2rgb(img_warped))
             plt.show()
         # debugging: draw_lines to tune distortion
-            draw_line(img_warped, 312,img_undist.shape[0], 312,0, [255, 255, 255], 3)
-            draw_line(img_warped, 940,img_undist.shape[0], 940,0, [255, 255, 255], 3)
+            # draw_line(img_warped, 312,img_undist.shape[0], 312,0, [255, 255, 255], 3)
+            # draw_line(img_warped, 940,img_undist.shape[0], 940,0, [255, 255, 255], 3)
         return img_warped, M, Minv
 
     ## Detect lane pixels and fit to find the lane boundary.
@@ -527,8 +577,8 @@ if __name__ == "__main__":
     plt.rcParams["figure.figsize"] = (25,15)
 
     ld = lane_detection()
-    ld.print_output = True
-    video_pipeline = False
+    ld.print_output = False
+    video_pipeline = True
     # initialisation
     cret, mtx, dist, rvecs, tvecs = ld.compute_camera_calibration()
 
@@ -541,20 +591,20 @@ if __name__ == "__main__":
         img_undist = ld.undistort_image(img_input, mtx, dist)
         img_combined_binary = ld.image_to_thresholded_binary(img_undist)
         img_binary_warped, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
-        # img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lanes(img_binary_warped)
-        # left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
-        # img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
-        # result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv, left_curverad, right_curverad)
+        img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lanes(img_binary_warped)
+        left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
+        img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
+        result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv, left_curverad, right_curverad)
             
 
-        # # load input image
-        # img_undist = ld.undistort_image(img_input, mtx, dist)
-        # img_combined_binary = ld.image_to_thresholded_binary(img_undist)
-        # img_binary_warped, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
-        # img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lanes(img_binary_warped)
-        # left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
-        # img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
-        # result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv, left_curverad, right_curverad)
+        # load input image
+        img_undist = ld.undistort_image(img_input, mtx, dist)
+        img_combined_binary = ld.image_to_thresholded_binary(img_undist)
+        img_binary_warped, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
+        img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lanes(img_binary_warped)
+        left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
+        img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
+        result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv, left_curverad, right_curverad)
         
 
 
