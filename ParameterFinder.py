@@ -217,10 +217,10 @@ class ParameterFinder:
         self.magn_sobel_kernel = magn_sobel_kernel
         self.thresh_2 = thresh_2
         gray = self.extract_single_color(image)
-        sobel_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=magn_sobel_kernel)
-        sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=magn_sobel_kernel)
+        sobel_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=magn_sobel_kernel())
+        sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=magn_sobel_kernel())
     #     magn = np.sqrt(sobel_x * sobel_x + sobel_y * sobel_y)
-        magn = np.sqrt(np.power(sobel_x, 2) + np.power(sobel_y, 2))
+        magn = np.sqrt(np.power(sobel_x,2) + np.power(sobel_y,2))
         scaled_magn = np.uint8(255*magn/np.max(magn))
         # Apply threshold
         magn_binary = np.zeros_like(scaled_magn)       
@@ -268,25 +268,10 @@ class ParameterFinder:
         return binary_image
 
     def _render(self, save_name="no_file_name"):
-
-            
-        crop_y_border = self.image.shape[0]//2 + 120
-
-        image_1 = self.image.copy()
-        image_2 = self.image.copy()
-        image_1 = image_1[0:crop_y_border-1, 0:image_1.shape[1]]
-        image_2 = image_2[crop_y_border:image_2.shape[0], 0:image_2.shape[1]]
-        
-        # cv2.imshow('image1', image_1)
-        # cv2.waitKey(0)
-        # cv2.imshow('image2', image_2)
-        # cv2.waitKey(0)
-
-        # image 1
-        self._sobelx_binary = self.abs_sobel_thresh(image_1, 'x', self._sobelx_filter, (self._sobelx_low, self._sobelx_high))
-        self._sobely_binary = self.abs_sobel_thresh(image_1, 'y', self._sobely_filter, (self._sobely_low, self._sobely_high))
-        self._mag_binary = self.abs_magn_thresh(image_1, self._magn_filter, (self._magn_low, self._magn_high))
-        self._dir_binary = self.abs_dir_threshold(image_1, self._direction_filter, (self._direction_low, self._direction_high))
+        self._sobelx_binary = self.abs_sobel_thresh(self.image, 'x', self._sobelx_filter, (self._sobelx_low, self._sobelx_high))
+        self._sobely_binary = self.abs_sobel_thresh(self.image, 'y', self._sobely_filter, (self._sobely_low, self._sobely_high))
+        self._mag_binary = self.abs_magn_thresh(self.image, self.magn_filter, (self._magn_low, self._magn_high))
+        self._dir_binary = self.abs_dir_threshold(self.image, self._direction_filter, (self._direction_low, self._direction_high))
         self._avg_img = self.abs_average(self._dir_binary, self._direction_avg_filter)
         self._thres_img = self.abs_threshold(self._avg_img, self._direction_thresh)
         self.combined = np.zeros_like(self._sobelx_binary)
@@ -298,49 +283,6 @@ class ParameterFinder:
         self._post_avg_img = self.abs_average(self.combined, self._post_avg_filter)
         self._post_thres_img = self.abs_threshold(self._post_avg_img, self._post_thresh)
 
-
-        #  image 2
-        _2_sobelx_filter = 3
-        _2_sobelx_low = 18
-        _2_sobelx_high = 255
-
-        _2_sobely_filter = 3
-        _2_sobely_low = 0
-        _2_sobely_high = 255
-
-        _2_magn_filter = 3
-        _2_magn_low = 103
-        _2_magn_high = 255
-
-        _2_direction_filter = 15
-        _2_direction_low = 227
-        _2_direction_high = 287
-        _2_direction_avg_filter = 11
-        _2_direction_thresh = 255
-        
-        _2_post_avg_filter = 5
-        _2_post_thresh = 158
-
-        _2_sobelx_binary = self.abs_sobel_thresh(image_2, 'x', _2_sobelx_filter, (_2_sobelx_low, _2_sobelx_high))
-        _2_sobely_binary = self.abs_sobel_thresh(image_2, 'y', _2_sobely_filter, (_2_sobely_low, _2_sobely_high))
-        _2_mag_binary = self.abs_magn_thresh(image_2, _2_magn_filter, (_2_magn_low, _2_magn_high))
-        _2_dir_binary = self.abs_dir_threshold(image_2, _2_direction_filter, (_2_direction_low, _2_direction_high))
-        _2_avg_img = self.abs_average(_2_dir_binary, _2_direction_avg_filter)
-        _2_thres_img = self.abs_threshold(_2_avg_img, _2_direction_thresh)
-        _2_combined = np.zeros_like(_2_sobelx_binary)
-        # self.combined[((_2_sobelx_binary == 255) & (_2_sobely_binary == 255)) | ((_2_mag_binary == 255) & (_2_thres_img == 255))] = 255
-        # self.combined[((_2_sobelx_binary == 255) & (_2_sobely_binary == 255)) | ((_2_thres_img == 255))] = 255
-        _2_combined[((_2_sobelx_binary == 255) & (_2_sobely_binary == 255)) | (_2_mag_binary == 255) | (_2_thres_img == 255)] = 255
-        # self.combined[((_2_sobelx_binary == 255) & (_2_sobely_binary == 255)) | (_2_mag_binary == 255)] = 255
-
-        _2_post_avg_img = self.abs_average(_2_combined, _2_post_avg_filter)
-        _2_post_thres_img = self.abs_threshold(_2_post_avg_img, _2_post_thresh)
-
-        # # concatenate both pictures
-        concatenated_image = np.concatenate((self._post_thres_img, _2_post_thres_img), axis=0)
-        # concatenated_image = _2_post_thres_img
-        # concatenated_image =  self._post_thres_img
-
         if save_name == "no_file_name":
             cv2.imshow('sobelx_binary', self._sobelx_binary)
             cv2.imshow('sobely_binary', self._sobely_binary)
@@ -350,9 +292,9 @@ class ParameterFinder:
             cv2.imshow('direction_&_avg_thresh', self._thres_img)
         self.color_binary = np.dstack(( np.zeros_like(self._sobelx_binary),((self._sobelx_binary == 255) & (self._sobely_binary == 255)), ((self._mag_binary == 255) & (self._thres_img == 255)))) * 255
         if save_name == "no_file_name":
-            cv2.imshow('output', concatenated_image)
+            cv2.imshow('output', self._post_thres_img)
         else: 
-            cv2.imwrite(f"test_output/{save_name}_output", concatenated_image)
+            cv2.imwrite(f"test_output/{save_name}_output", self._post_thres_img)
         # cv2.imshow('output', self.color_binary)
 
     def save_params(self, var_list):
@@ -376,7 +318,16 @@ if __name__ == "__main__":
 
     IMG = cv2.imread(FILENAME)#, cv2.IMREAD_GRAYSCALE)
 
+    
+    # crop_y_border = IMG.shape[0]//2 + 120
+
+    # img_crop_top = IMG[0:crop_y_border-1, 0:IMG.shape[1]]
+    # img_crop_bottom = IMG[crop_y_border:IMG.shape[0], 0:IMG.shape[1]]
+    # IMG = np.concatenate((img_crop_top, img_crop_bottom), axis=0)
+
     cv2.imshow('input', IMG)
+
+    # cv2.waitKey(0)
 
     param_finder = ParameterFinder(IMG, sobelx_filter=3, sobelx_low=16, sobelx_high=255, 
                                         sobely_filter=3, sobely_low=36, sobely_high=255, 
