@@ -26,7 +26,7 @@ def plot_2(_img_1, _img_2, heading_1="", heading_2=""):
     plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
     
 def draw_line(self, img, x1, y1, x2, y2, color=[255, 0, 0], thickness=3):
-        return cv2.line(img, (x1, y1), (x2, y2), color, thickness)
+    return cv2.line(img, (x1, y1), (x2, y2), color, thickness)
         
 class lane_detection:
     iteration_cnt = 0
@@ -149,23 +149,27 @@ class lane_detection:
     def image_to_thresholded_binary(self, _img_undist):
 
         # filter parameters
-        _sobelx_low = 4
+        _sobelx_low = 4 #(12,18)
         _sobelx_high = 255
         _sobelx_filter = 3
 
-        _sobely_low = 9
+        _sobely_low = 4 #(24,0)
         _sobely_high = 255
         _sobely_filter = 3
 
-        _magn_low = 15
-        _magn_high = 255
+        _magn_low = 15 #(x, 103)
+        _magn_high = 255 
         _magn_filter = 3
 
         _direction_low = 229
-        _direction_high = 269
+        _direction_high = 0 #269 (0,0)
         _direction_filter = 15
-        _direction_avg_filter = 11
+        _direction_avg_filter = 11 #(1)
         _direction_thresh = 179
+
+
+        _post_avg_filter = 3#9 (x,5)
+        _post_thresh = 126#80  (x, 158)
 
         # use functions to generate binary image
         _sobelx_binary = self.abs_sobel_thresh(_img_undist, 'x', _sobelx_filter, (_sobelx_low, _sobelx_high))
@@ -180,11 +184,14 @@ class lane_detection:
         # combined_binary[((_sobelx_binary == 255) & (_sobely_binary == 255)) | ((_mag_binary == 255) & (_thres_img == 255))] = 255
         combined_binary[((_sobelx_binary == 255) & (_sobely_binary == 255)) | (_thres_img == 255)] = 255
 
+        _post_avg_img = self.abs_average(combined_binary, _post_avg_filter)
+        _post_thres_img = self.abs_threshold(_post_avg_img, _post_thresh)
+
         if self.print_output:
-            plt.imshow(combined_binary, cmap='gray')
+            plt.imshow(_post_thres_img, cmap='gray')
             plt.show()
         if self.write_output:
-            cv2.imwrite("output_images/combined_binary.jpg", combined_binary)
+            cv2.imwrite("output_images/combined_binary.jpg", _post_thres_img)
         return combined_binary
 
     ## Apply a perspective transform to rectify binary image (bird-eye view)
@@ -520,8 +527,8 @@ if __name__ == "__main__":
     plt.rcParams["figure.figsize"] = (25,15)
 
     ld = lane_detection()
-    ld.print_output = False
-    video_pipeline = True
+    ld.print_output = True
+    video_pipeline = False
     # initialisation
     cret, mtx, dist, rvecs, tvecs = ld.compute_camera_calibration()
 
