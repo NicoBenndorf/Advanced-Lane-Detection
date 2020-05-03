@@ -12,6 +12,8 @@ import sys
 from moviepy.editor import VideoFileClip
 from IPython.display import HTML
 
+from collections import deque
+
 
 def cvt_bgr2rgb(_img_bgr):
     return cv2.cvtColor(_img_bgr, cv2.COLOR_BGR2RGB)
@@ -29,23 +31,98 @@ def plot_2(_img_1, _img_2, heading_1="", heading_2=""):
 def draw_line(self, img, x1, y1, x2, y2, color=[255, 0, 0], thickness=3):
     return cv2.line(img, (x1, y1), (x2, y2), color, thickness)
         
+# class to store the characteristics of each line detection
+class line():
+    def __init__(self):
+        # was the line detected in the last iteration?
+        self.detected = False  
+        # number of stored lines detected n
+        self.n = 60
+        self.n_fit = 5
+        # x values of the last n fits of the line
+        self.recent_xfitted_buffer = deque()
+        self.recent_xfitted = [] 
+        #average x values of the fitted line over the last n iterations
+        self.bestx = None     
+        #polynomial coefficients averaged over the last n iterations
+        self.recent_fit_buffer = deque()
+        self.recent_fit = [] 
+        self.best_fit = None  
+        #polynomial coefficients for the most recent fit
+        self.current_fit = [np.array([False])]  
+        #radius of curvature of the line in some units
+        self.radius_of_curvature = None 
+        #distance in meters of vehicle center from the line
+        self.line_base_pos = None 
+        #difference in fit coefficients between last and new fits
+        self.diffs = np.array([0,0,0], dtype='float') 
+        #x values for detected line pixels
+        self.allx = None  
+        #y values for detected line pixels
+        self.ally = None  
+    
 
-# class line():
-#     def __init__(self):
-#         # line detected in last iteration?
-#         self.detected = False
-#         # x values of last n fits of line
-#         self.recent_xfitted = []
-#         # aver
+
+    def update_with_new_values(self, my_deque, new_values):
+        my_deque.appendleft(new_values)
+        while len(my_deque) > self.n:
+            my_deque.pop()
+        my_values = []
+        for i in range(0, len(my_deque)):
+            my_values.append(my_deque[i])
+        return my_values
+    
+    def calc_average(self, last_n_values, avg_over_n):
+        x_avg = []
+        len_last_n = len(last_n_values)
+        if len_last_n != 0:
+            for y in range(0,len(last_n_values[0])):
+                x_sum = 0
+                for n in range(0, min(len_last_n, avg_over_n)):
+                    x_sum += last_n_values[n][y]
+                x_avg.append(x_sum/len_last_n)
+        return x_avg
+
+    def calc_offset(self):
+        pass
+
+    ## Determine the curvature of the lane and vehicle position with respect to center.
+    def calc_curvature_real(self, y_eval, fit_cr):
+        '''
+        Calculates the curvature of polynomial functions in meters.
+        '''
+        # Define conversions in x and y from pixels space to meters
+        ym_per_pix = 3/63 # 63(53-69)pixel; meters per pixel in y dimension
+        xm_per_pix = 3.7/611 # 611(605-620)pixel; meters per pixel in x dimension
+        
+        # Implement the calculation of R_curve (radius of curvature)
+        curverad = (1+(2*fit_cr[0]*y_eval*ym_per_pix+fit_cr[1])**2)**(3/2)/(np.absolute(2*fit_cr[0]))  
+        
+        
+        return curverad
+
+    def update(self, img_shape,was_detected, xfitted, fit, radius=0, xvalues=0, yvalues=0):
+        # update values:
+        self.detected = was_detected
+
+        self.recent_xfitted = self.update_with_new_values(self.recent_xfitted_buffer, xfitted)
+        self.bestx = self.calc_average(self.recent_xfitted, self.n_fit)
+        self.recent_fit = self.update_with_new_values(self.recent_fit_buffer, fit)
+        self.best_fit = self.calc_average(self.recent_fit, self.n)
+        # calculate metrics:
+        curvature_radius = self.calc_curvature_real(img_shape[0], self.best_fit)
+        # offset = calc_offset()
+        return curvature_radius, self.bestx, self.best_fit
 
 class lane_detection:
-    iteration_cnt = 0
-    print_output = False
-    write_output = False
-    left_fit = np.array([0.0, 0.0, 0.0])
-    right_fit = np.array([0.0, 0.0, 0.0])
-    def init(self):
-        pass
+    def __init__(self):
+        self.iteration_cnt = 0
+        self.print_output = False
+        self.write_output = False
+        self.left_fit = np.array([0.0, 0.0, 0.0])
+        self.right_fit = np.array([0.0, 0.0, 0.0])
+        self.line_left = line()
+        self.line_right = line()
         
     ## Compute Camera Calibration
     def compute_camera_calibration(self):
@@ -108,7 +185,6 @@ class lane_detection:
             return hls[:,:,1]
         elif(channel == 's'):
             return hls[:,:,2]
-
     
     def abs_sobel_thresh(self, image_binary, orient='x', sobel_kernel=3, thresh=(0, 255)):
         self.image_binary = image_binary
@@ -134,7 +210,7 @@ class lane_detection:
         self.thresh_2 = thresh_2
         sobel_x = cv2.Sobel(image_binary, cv2.CV_64F, 1, 0, ksize=magn_sobel_kernel)
         sobel_y = cv2.Sobel(image_binary, cv2.CV_64F, 0, 1, ksize=magn_sobel_kernel)
-    #     magn = np.sqrt(sobel_x * sobel_x + sobel_y * sobel_y)
+        # magn = np.sqrt(sobel_x * sobel_x + sobel_y * sobel_y)
         magn = np.sqrt(np.power(sobel_x,2) + np.power(sobel_y,2))
         scaled_magn = np.uint8(255*magn/np.max(magn))
         # Apply threshold
@@ -182,18 +258,19 @@ class lane_detection:
 
         channels_binary = np.zeros_like(binary_channel_h)
         channels_binary[(binary_channel_h > 0) | (binary_channel_l > 0)] = 255
+        # channels_binary[(binary_channel_h > 0)] = 255
     
         # filter parameters 1
-        _sobelx_low = 5 #(12,18)
-        _sobelx_high = 50
+        _sobelx_low = 12 #(12,18)
+        _sobelx_high = 255
         _sobelx_filter = 3
 
-        _sobely_low = 6 #(24,0)
-        _sobely_high = 50
+        _sobely_low = 24 #(24,0)
+        _sobely_high = 255
         _sobely_filter = 3
 
         _magn_low = 15 #(x, 103)
-        _magn_high = 0 
+        _magn_high = 255 
         _magn_filter = 3
 
         _direction_low = 229
@@ -205,6 +282,27 @@ class lane_detection:
 
         _post_avg_filter = 1#9 (x,5)
         _post_thresh = 126#80  (x, 158)
+        # _sobelx_low = 5 #(12,18)
+        # _sobelx_high = 50
+        # _sobelx_filter = 3
+
+        # _sobely_low = 6 #(24,0)
+        # _sobely_high = 50
+        # _sobely_filter = 3
+
+        # _magn_low = 15 #(x, 103)
+        # _magn_high = 0 
+        # _magn_filter = 3
+
+        # _direction_low = 229
+        # _direction_high = 287 #269 (0,0)
+        # _direction_filter = 15
+        # _direction_avg_filter = 11 #(1)
+        # _direction_thresh = 225
+
+
+        # _post_avg_filter = 1#9 (x,5)
+        # _post_thresh = 126#80  (x, 158)
 
         # filter parameters 2
         _2_sobelx_low =  18#(12,18)
@@ -233,45 +331,48 @@ class lane_detection:
 
         _img_undist_1 = _img_undist.copy()
         _img_undist_2 = _img_undist.copy()
-        _img_undist_1 = _img_undist_1[0:crop_y_border, 0:_img_undist.shape[1]]
-        _img_undist_2 = _img_undist_2[crop_y_border:_img_undist.shape[0], 0:_img_undist.shape[1]]
+        # _img_undist_1 = _img_undist_1[0:crop_y_border, 0:_img_undist.shape[1]]
+        # _img_undist_2 = _img_undist_2[crop_y_border:_img_undist.shape[0], 0:_img_undist.shape[1]]
         
 
         # use functions to generate binary image 1
-        _sobelx_binary = self.abs_sobel_thresh(_img_undist_1, 'x', _sobelx_filter, (_sobelx_low, _sobelx_high))
-        _sobely_binary = self.abs_sobel_thresh(_img_undist_1, 'y', _sobely_filter, (_sobely_low, _sobely_high))
-        _mag_binary = self.abs_magn_thresh(_img_undist_1, _magn_filter, (_magn_low, _magn_high))
-        _dir_binary = self.abs_dir_threshold(_img_undist_1, _direction_filter, (_direction_low, _direction_high))
+        _img_undist_copy3 = _img_undist.copy()
+        single_channel_gray = self.extract_single_color(_img_undist_copy3, 's')
+        _sobelx_binary = self.abs_sobel_thresh(single_channel_gray, 'x', _sobelx_filter, (_sobelx_low, _sobelx_high))
+        _sobely_binary = self.abs_sobel_thresh(single_channel_gray, 'y', _sobely_filter, (_sobely_low, _sobely_high))
+        _mag_binary = self.abs_magn_thresh(single_channel_gray, _magn_filter, (_magn_low, _magn_high))
+        _dir_binary = self.abs_dir_threshold(single_channel_gray, _direction_filter, (_direction_low, _direction_high))
         _avg_img = self.abs_average(_dir_binary, _direction_avg_filter)
         _thres_img = self.abs_threshold(_avg_img, _direction_thresh)
 
         # combine results of different filters
         combined_binary = np.zeros_like(_sobelx_binary)
-        # combined_binary[((_sobelx_binary == 255) & (_sobely_binary == 255)) | ((_mag_binary == 255) & (_thres_img == 255))] = 255
-        combined_binary[((_sobelx_binary == 255) & (_sobely_binary == 255)) | (_thres_img == 255)] = 255
+        combined_binary[((_sobelx_binary == 255) & (_sobely_binary == 255)) | ((_mag_binary == 255) & (_thres_img == 255))] = 255
+        # combined_binary[((_sobelx_binary == 255) & (_sobely_binary == 255)) | (_thres_img == 255)] = 255
 
-        _post_avg_img = self.abs_average(channels_binary, _post_avg_filter)
+        _post_avg_img = self.abs_average(combined_binary, _post_avg_filter)
         _post_thres_img = self.abs_threshold(_post_avg_img, _post_thresh)
 
-        # use functions to generate binary image 2
-        _2_sobelx_binary = self.abs_sobel_thresh(_img_undist_2, 'x', _2_sobelx_filter, (_2_sobelx_low, _2_sobelx_high))
-        _2_sobely_binary = self.abs_sobel_thresh(_img_undist_2, 'y', _2_sobely_filter, (_2_sobely_low, _2_sobely_high))
-        _2_mag_binary = self.abs_magn_thresh(_img_undist_2, _2_magn_filter, (_2_magn_low, _2_magn_high))
-        _2_dir_binary = self.abs_dir_threshold(_img_undist_2, _2_direction_filter, (_2_direction_low, _2_direction_high))
-        _2_avg_img = self.abs_average(_2_dir_binary, _2_direction_avg_filter)
-        _2_thres_img = self.abs_threshold(_2_avg_img, _2_direction_thresh)
+        # # use functions to generate binary image 2
+        # _2_sobelx_binary = self.abs_sobel_thresh(_img_undist_2, 'x', _2_sobelx_filter, (_2_sobelx_low, _2_sobelx_high))
+        # _2_sobely_binary = self.abs_sobel_thresh(_img_undist_2, 'y', _2_sobely_filter, (_2_sobely_low, _2_sobely_high))
+        # _2_mag_binary = self.abs_magn_thresh(_img_undist_2, _2_magn_filter, (_2_magn_low, _2_magn_high))
+        # _2_dir_binary = self.abs_dir_threshold(_img_undist_2, _2_direction_filter, (_2_direction_low, _2_direction_high))
+        # _2_avg_img = self.abs_average(_2_dir_binary, _2_direction_avg_filter)
+        # _2_thres_img = self.abs_threshold(_2_avg_img, _2_direction_thresh)
 
-        # combine results of different filters
-        _2_combined_binary = np.zeros_like(_2_sobelx_binary)
-        # combined_binary[((_2_sobelx_binary == 255) & (_2_sobely_binary == 255)) | ((_2_mag_binary == 255) & (_2_thres_img == 255))] = 255
-        _2_combined_binary[((_2_sobelx_binary == 255) & (_2_sobely_binary == 255)) | (_2_thres_img == 255)] = 255
+        # # combine results of different filters
+        # _2_combined_binary = np.zeros_like(_2_sobelx_binary)
+        # # combined_binary[((_2_sobelx_binary == 255) & (_2_sobely_binary == 255)) | ((_2_mag_binary == 255) & (_2_thres_img == 255))] = 255
+        # _2_combined_binary[((_2_sobelx_binary == 255) & (_2_sobely_binary == 255)) | (_2_thres_img == 255)] = 255
 
-        _2_post_avg_img = self.abs_average(_2_combined_binary, _post_avg_filter)
-        _2_post_thres_img = self.abs_threshold(_2_post_avg_img, _post_thresh)
+        # _2_post_avg_img = self.abs_average(_2_combined_binary, _post_avg_filter)
+        # _2_post_thres_img = self.abs_threshold(_2_post_avg_img, _post_thresh)
 
         # concatenated_binary = np.concatenate((_post_thres_img, _2_post_thres_img), axis=0)
+        concatenated_binary = combined_binary
         # concatenated_binary = _post_thres_img
-        concatenated_binary = channels_binary
+        # concatenated_binary = channels_binary
 
         if self.print_output:
             plt.imshow(concatenated_binary, cmap='gray')
@@ -454,8 +555,8 @@ class lane_detection:
         rightx = nonzerox[right_lane_inds]
         righty = nonzeroy[right_lane_inds]
 
-        print("leftx.size: ",leftx.size)
-        print("rightx.size: ", rightx.size)
+        # print("leftx.size: ",leftx.size)
+        # print("rightx.size: ", rightx.size)
         if (leftx.size > 500) & (lefty.size > 500) & (rightx.size > 500) & (righty.size > 500):
             # fit new polynomials
             left_fitx, right_fitx, ploty, left_fit_new, right_fit_new = ld.fit_poly(binary_warped.shape, leftx, lefty, rightx, righty)
@@ -495,8 +596,8 @@ class lane_detection:
         return result, out_img, left_fit_new, right_fit_new, left_fitx, right_fitx, ploty, success
 
     def detect_lanes(self, _binary_warped):
-        lane_detection.iteration_cnt += 1
-        if lane_detection.iteration_cnt <= 1:
+        self.iteration_cnt += 1
+        if self.iteration_cnt <= 1:
             # searching lane lines from scratch (sliding window) for startup and fallback
             img_fittet_lanes, lanes, self.left_fit, self.right_fit, self.left_fitx, self.right_fitx, ploty = self.fit_polynomial(_binary_warped)
         else:
@@ -581,12 +682,18 @@ class lane_detection:
 
     ## Video lane detection ##
     def process_image(self, _img_input):
+        img_shape = _img_input.shape
+
         img_undist = ld.undistort_image(_img_input, mtx, dist)
         img_combined_binary = ld.image_to_thresholded_binary(img_undist)
         img_binary_warped, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
         img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lanes(img_binary_warped)
-        left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
-        img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
+        left_curverad, left_best_fitx, left_best_fit = ld.line_left.update(img_shape, True, left_fitx, left_fit)
+        right_curverad, right_best_fitx, right_best_fit = ld.line_right.update(img_shape,True, right_fitx, right_fit)
+        print("left_best_fitx: ", left_best_fitx[img_shape[0]-1], "    right_best_fitx: ", right_best_fitx[img_shape[0]-1], " | middle of lane: ", left_best_fitx[img_shape[0]-1] + (right_best_fitx[img_shape[0]-1] - left_best_fitx[img_shape[0]-1]) )
+        # left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
+        img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_best_fitx, right_best_fitx, ploty, perspective_Minv)
+        # img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
         result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv, left_curverad, right_curverad)
         return result_annotated
 
@@ -604,10 +711,13 @@ class lane_detection:
         ## You may also uncomment the following line for a subclip of the first 5 seconds
         # clip1 = VideoFileClip("project_video.mp4").subclip(24,26)
         # clip1 = VideoFileClip("project_video.mp4").subclip(38,42)
-        clip1 = VideoFileClip("project_video.mp4")
+        clip1 = VideoFileClip("project_video.mp4").subclip(32,42)
+        # clip1 = VideoFileClip("project_video.mp4").subclip(39,41)
+        # clip1 = VideoFileClip("project_video.mp4")
         white_clip = clip1.fl_image(self.process_image) #NOTE: this function expects color images!!
         # white_clip = clip1.fl_image(self.save_frames_of_video) #NOTE: this function expects color images!!
         white_clip.write_videofile(white_output, audio=False)    
+
 #%%
 if __name__ == "__main__":
     # setup
@@ -620,28 +730,59 @@ if __name__ == "__main__":
     cret, mtx, dist, rvecs, tvecs = ld.compute_camera_calibration()
  
 #%%
+
     if video_pipeline:
         ld.execute_video_pipeline()
     else:
         # load input image
-        img_input = plt.imread('test_images/frame1.jpg')
+        
+        img_input = plt.imread('video_frames/frame1.jpg')
+        img_undist = ld.undistort_image(img_input, mtx, dist)
+        img_shape = img_undist.shape
+
+        img_combined_binary = ld.image_to_thresholded_binary(img_undist)
+        img_binary_warped, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
+        img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lanes(img_binary_warped)
+        left_curverad, left_best_fitx, left_best_fit = ld.line_left.update(img_shape,True, left_fitx, left_fit)
+        right_curverad, right_best_fitx, right_best_fit = ld.line_right.update(img_shape,True, right_fitx, right_fit)
+        # left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
+        img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_best_fitx, right_best_fitx, ploty, perspective_Minv)
+        # img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
+        result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv, left_curverad, right_curverad)
+
+        img_input = plt.imread('video_frames/frame10.jpg')
         img_undist = ld.undistort_image(img_input, mtx, dist)
         img_combined_binary = ld.image_to_thresholded_binary(img_undist)
         img_binary_warped, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
         img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lanes(img_binary_warped)
-        left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
-        img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
+        left_curverad, left_best_fitx, left_best_fit = ld.line_left.updateimg_shape,(True, left_fitx, left_fit)
+        right_curverad, right_best_fitx, right_best_fit = ld.line_right.update(img_shape,True, right_fitx, right_fit)
+        # left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
+        img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_best_fitx, right_best_fitx, ploty, perspective_Minv)
+        # img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
+        result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv, left_curverad, right_curverad)
+
+        img_input = plt.imread('video_frames/frame20.jpg')
+        img_undist = ld.undistort_image(img_input, mtx, dist)
+        img_combined_binary = ld.image_to_thresholded_binary(img_undist)
+        img_binary_warped, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
+        img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lanes(img_binary_warped)
+        left_curverad, left_best_fitx, left_best_fit = ld.line_left.update(img_shape,True, left_fitx, left_fit)
+        right_curverad, right_best_fitx, right_best_fit = ld.line_right.update(img_shape,True, right_fitx, right_fit)
+        # left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
+        img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_best_fitx, right_best_fitx, ploty, perspective_Minv)
+        # img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
         result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv, left_curverad, right_curverad)
             
 
-        # load input image
-        img_undist = ld.undistort_image(img_input, mtx, dist)
-        img_combined_binary = ld.image_to_thresholded_binary(img_undist)
-        img_binary_warped, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
-        img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lanes(img_binary_warped)
-        left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
-        img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
-        result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv, left_curverad, right_curverad)
+#         # load input image
+#         img_undist = ld.undistort_image(img_input, mtx, dist)
+#         img_combined_binary = ld.image_to_thresholded_binary(img_undist)
+#         img_binary_warped, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
+#         img_fittet_lanes, lanes, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lanes(img_binary_warped)
+#         left_curverad, right_curverad = ld.measure_curvature_real(img_fittet_lanes.shape[0], left_fit, right_fit)
+#         img_result_lane = ld.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
+#         result_annotated = ld.annotate_lane_markings(img_result_lane, lanes, perspective_Minv, left_curverad, right_curverad)
         
 
 
