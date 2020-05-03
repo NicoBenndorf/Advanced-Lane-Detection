@@ -6,6 +6,7 @@ import matplotlib.image as mpimg
 
 # import array
 import glob
+import sys
 
 # Import everything needed to edit/save/watch video clips
 from moviepy.editor import VideoFileClip
@@ -28,6 +29,15 @@ def plot_2(_img_1, _img_2, heading_1="", heading_2=""):
 def draw_line(self, img, x1, y1, x2, y2, color=[255, 0, 0], thickness=3):
     return cv2.line(img, (x1, y1), (x2, y2), color, thickness)
         
+
+# class line():
+#     def __init__(self):
+#         # line detected in last iteration?
+#         self.detected = False
+#         # x values of last n fits of line
+#         self.recent_xfitted = []
+#         # aver
+
 class lane_detection:
     iteration_cnt = 0
     print_output = False
@@ -82,25 +92,34 @@ class lane_detection:
         return cv2.undistort(img, _mtx, _dist, None, _mtx)
         
     ## Generate thesholded binary image (color transform, gradients etc...)
-    def extract_single_color(self, img):
-        r = img[:,:,0]
-        g = img[:,:,1]
-        b = img[:,:,2]
-        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-        hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
-        h_channel = hls[:,:,0]
-        l_channel = hls[:,:,1]
-        s_channel = hls[:,:,2]
-        return s_channel
+    def extract_single_color(self, img, channel='gray'):
+        hls = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)  
+        if(channel == 'r'):
+            return img[:,:,0]
+        elif(channel == 'g'):
+            return img[:,:,1]
+        elif(channel == 'b'):
+            return img[:,:,2]
+        elif(channel == 'gray'):
+            return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        elif(channel == 'h'):
+            return hls[:,:,0]
+        elif(channel == 'l'):
+            return hls[:,:,1]
+        elif(channel == 's'):
+            return hls[:,:,2]
 
-    def abs_sobel_thresh(self, image, orient='x', sobel_kernel=3, thresh=(0, 255)):
+    
+    def abs_sobel_thresh(self, image_binary, orient='x', sobel_kernel=3, thresh=(0, 255)):
+        self.image_binary = image_binary
+        self.orient = orient
+        self.sobel_kernel = sobel_kernel
+        self.thresh = thresh
         # Calculate directional gradient
-        # gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        gray = self.extract_single_color(image)
         if orient == 'x':
-            sobel_orient = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=sobel_kernel)
+            sobel_orient = cv2.Sobel(image_binary, cv2.CV_64F, 1, 0, ksize=sobel_kernel)
         elif orient == 'y':
-            sobel_orient = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=sobel_kernel)
+            sobel_orient = cv2.Sobel(image_binary, cv2.CV_64F, 0, 1, ksize=sobel_kernel)
         abs_sobel = np.absolute(sobel_orient)
         scaled_sobel = np.uint8(255*abs_sobel/np.max(abs_sobel))
         # Apply threshold
@@ -108,26 +127,28 @@ class lane_detection:
         grad_binary[(scaled_sobel > thresh[0]) & (scaled_sobel < thresh[1])] = 255 #imshow accepts 1 not!
         return grad_binary
 
-    def abs_magn_thresh(self, image, magn_sobel_kernel=3, thresh_2=(0, 255)):
+    def abs_magn_thresh(self, image_binary, magn_sobel_kernel=3, thresh_2=(0, 255)):
         # Calculate gradient magnitude
-        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        gray = self.extract_single_color(image)
-        sobel_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=magn_sobel_kernel)
-        sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=magn_sobel_kernel)
-        # magn = np.sqrt(sobel_x * sobel_x + sobel_y * sobel_y)
+        self.image_binary = image_binary
+        self.magn_sobel_kernel = magn_sobel_kernel
+        self.thresh_2 = thresh_2
+        sobel_x = cv2.Sobel(image_binary, cv2.CV_64F, 1, 0, ksize=magn_sobel_kernel)
+        sobel_y = cv2.Sobel(image_binary, cv2.CV_64F, 0, 1, ksize=magn_sobel_kernel)
+    #     magn = np.sqrt(sobel_x * sobel_x + sobel_y * sobel_y)
         magn = np.sqrt(np.power(sobel_x,2) + np.power(sobel_y,2))
         scaled_magn = np.uint8(255*magn/np.max(magn))
         # Apply threshold
         magn_binary = np.zeros_like(scaled_magn)       
         magn_binary[(scaled_magn > (thresh_2[0])) & (scaled_magn < thresh_2[1])] = 255
         return magn_binary
-
-    def abs_dir_threshold(self, image, dir_sobel_kernel=3, dir_thresh=(-np.pi/2, np.pi/2)):
+    
+    def abs_dir_threshold(self, image_binary, dir_sobel_kernel=3, dir_thresh=(-np.pi/2, np.pi/2)):
+        self.image_binary = image_binary
+        self.dir_sobel_kernel = dir_sobel_kernel
+        self.dir_thresh = dir_thresh
         # Calculate gradient direction
-        # gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        gray = self.extract_single_color(image)
-        sobel_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=dir_sobel_kernel)
-        sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=dir_sobel_kernel)
+        sobel_x = cv2.Sobel(image_binary, cv2.CV_64F, 1, 0, ksize=dir_sobel_kernel)
+        sobel_y = cv2.Sobel(image_binary, cv2.CV_64F, 0, 1, ksize=dir_sobel_kernel)
         abs_grad_x = np.absolute(sobel_x)
         abs_grad_y = np.absolute(sobel_y)
         direction_grad = np.arctan2(abs_grad_y, abs_grad_x)
@@ -135,19 +156,33 @@ class lane_detection:
         dir_binary = np.zeros_like(direction_grad)
         dir_binary[(direction_grad > dir_thresh[0]) & (direction_grad < dir_thresh[1])] = 1
         return dir_binary
-
+    
     def abs_average(self, binary_image, filter_size=3):
         output_image = cv2.blur(binary_image, (filter_size, filter_size))       
-            # output_image = cv2.medianBlur(binary_image, filter_size)
-        return output_image
+        # output_image = cv2.medianBlur(binary_image, filter_size)
 
-    def abs_threshold(self, image, threshold):
+        return output_image
+    
+    def abs_threshold(self, image, thres_low, thres_high=255):
         binary_image = np.zeros_like(image)
-        binary_image[image > threshold/255] = 255
+        binary_image[(image > thres_low) & (image < thres_high)] = 255
         return binary_image
 
     def image_to_thresholded_binary(self, _img_undist):
+        _h_channel_low = 96
+        _h_channel_high = 102
+        _l_channel_low = 220
+        _l_channel_high = 255
 
+        _img_undist_extract = _img_undist.copy()
+        single_channel_h = self.extract_single_color(_img_undist_extract, 'h')
+        single_channel_l = self.extract_single_color(_img_undist_extract, 'l')
+        binary_channel_h = self.abs_threshold(single_channel_h, _h_channel_low, _h_channel_high)
+        binary_channel_l = self.abs_threshold(single_channel_l, _l_channel_low, _l_channel_high)
+
+        channels_binary = np.zeros_like(binary_channel_h)
+        channels_binary[(binary_channel_h > 0) | (binary_channel_l > 0)] = 255
+    
         # filter parameters 1
         _sobelx_low = 5 #(12,18)
         _sobelx_high = 50
@@ -198,8 +233,8 @@ class lane_detection:
 
         _img_undist_1 = _img_undist.copy()
         _img_undist_2 = _img_undist.copy()
-        _img_undist_1 = _img_undist_1[0:crop_y_border, 0:_img_undist_1.shape[1]]
-        _img_undist_2 = _img_undist_2[crop_y_border:_img_undist_2.shape[0], 0:_img_undist_2.shape[1]]
+        _img_undist_1 = _img_undist_1[0:crop_y_border, 0:_img_undist.shape[1]]
+        _img_undist_2 = _img_undist_2[crop_y_border:_img_undist.shape[0], 0:_img_undist.shape[1]]
         
 
         # use functions to generate binary image 1
@@ -215,7 +250,7 @@ class lane_detection:
         # combined_binary[((_sobelx_binary == 255) & (_sobely_binary == 255)) | ((_mag_binary == 255) & (_thres_img == 255))] = 255
         combined_binary[((_sobelx_binary == 255) & (_sobely_binary == 255)) | (_thres_img == 255)] = 255
 
-        _post_avg_img = self.abs_average(combined_binary, _post_avg_filter)
+        _post_avg_img = self.abs_average(channels_binary, _post_avg_filter)
         _post_thres_img = self.abs_threshold(_post_avg_img, _post_thresh)
 
         # use functions to generate binary image 2
@@ -234,8 +269,9 @@ class lane_detection:
         _2_post_avg_img = self.abs_average(_2_combined_binary, _post_avg_filter)
         _2_post_thres_img = self.abs_threshold(_2_post_avg_img, _post_thresh)
 
-        concatenated_binary = np.concatenate((_post_thres_img, _2_post_thres_img), axis=0)
-        # concatenated_binary = _2_post_thres_img
+        # concatenated_binary = np.concatenate((_post_thres_img, _2_post_thres_img), axis=0)
+        # concatenated_binary = _post_thres_img
+        concatenated_binary = channels_binary
 
         if self.print_output:
             plt.imshow(concatenated_binary, cmap='gray')
@@ -567,6 +603,7 @@ class lane_detection:
         ## Where start_second and end_second are integer va|ues representing the start and end of the subclip
         ## You may also uncomment the following line for a subclip of the first 5 seconds
         # clip1 = VideoFileClip("project_video.mp4").subclip(24,26)
+        # clip1 = VideoFileClip("project_video.mp4").subclip(38,42)
         clip1 = VideoFileClip("project_video.mp4")
         white_clip = clip1.fl_image(self.process_image) #NOTE: this function expects color images!!
         # white_clip = clip1.fl_image(self.save_frames_of_video) #NOTE: this function expects color images!!
@@ -581,13 +618,13 @@ if __name__ == "__main__":
     video_pipeline = True
     # initialisation
     cret, mtx, dist, rvecs, tvecs = ld.compute_camera_calibration()
-
+ 
 #%%
     if video_pipeline:
         ld.execute_video_pipeline()
     else:
         # load input image
-        img_input = plt.imread('test_images/straight_lines2.jpg')
+        img_input = plt.imread('test_images/frame1.jpg')
         img_undist = ld.undistort_image(img_input, mtx, dist)
         img_combined_binary = ld.image_to_thresholded_binary(img_undist)
         img_binary_warped, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
