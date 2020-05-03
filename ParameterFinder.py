@@ -9,12 +9,17 @@ import glob
 import sys
 
 class ParameterFinder:
-    def __init__(self, image, sobelx_filter=1, sobelx_low=0, sobelx_high=0, 
+    def __init__(self, image, _h_channel_low=0, _h_channel_high=255, _l_channel_low=0, _l_channel_high=255, 
+                sobelx_filter=1, sobelx_low=0, sobelx_high=0, 
                 sobely_filter=1, sobely_low=0, sobely_high=0, 
                 magn_filter=1, magn_low=0, magn_high=0, 
                 direction_filter=1, direction_low=0, direction_high=0,
                 direction_avg_filter=3, direction_thresh=0, load_params_path= "do_not_load"):
         self.image = image
+        self._h_channel_low = _h_channel_low
+        self._h_channel_high = _h_channel_high
+        self._l_channel_low = _l_channel_low
+        self._l_channel_high = _l_channel_high
         self._sobelx_filter = sobelx_filter
         self._sobelx_low = sobelx_low
         self._sobelx_high = sobelx_high
@@ -36,6 +41,20 @@ class ParameterFinder:
             [self._sobelx_filter, self._sobelx_low, self._sobelx_high, self._sobely_filter, self._sobely_low, self._sobely_high, self._magn_filter, self._magn_low, self._magn_high, self._direction_filter, self._direction_low, self._direction_high, self._direction_avg_filter, self._direction_thresh] = self.load_params(load_params_path, [self._sobelx_filter, self._sobelx_low, self._sobelx_high, self._sobely_filter, self._sobely_low, self._sobely_high, self._magn_filter, self._magn_low, self._magn_high, self._direction_filter, self._direction_low, self._direction_high, self._direction_avg_filter, self._direction_thresh])
             print("self._sobelx_filter: ", self._sobelx_filter)
 
+
+        def onchange_h_channel_low(pos):
+            self._h_channel_low = pos
+            self._render()
+        def onchange_h_channel_high(pos):
+            self._h_channel_high = pos
+            self._render()
+
+        def onchange_l_channel_low(pos):
+            self._l_channel_low = pos
+            self._render()
+        def onchange_l_channel_high(pos):
+            self._l_channel_high = pos
+            self._render()
 
         def onchange_sobelx_low(pos):
             self._sobelx_low = pos
@@ -97,6 +116,13 @@ class ParameterFinder:
             self._render()
     
         cv2.namedWindow('output')
+
+        cv2.createTrackbar('h_channel_low', 'output', self._h_channel_low, 255, onchange_h_channel_low)
+        cv2.createTrackbar('h_channel_high', 'output', self._h_channel_high, 255, onchange_h_channel_high)
+        
+        cv2.createTrackbar('l_channel_low', 'output', self._l_channel_low, 255, onchange_l_channel_low)
+        cv2.createTrackbar('l_channel_high', 'output', self._l_channel_high, 255, onchange_l_channel_high)
+
 
         cv2.createTrackbar('sobelx_low', 'output', self._sobelx_low, 255, onchange_sobelx_low)
         cv2.createTrackbar('sobelx_high', 'output', self._sobelx_high, 255, onchange_sobelx_high)
@@ -182,28 +208,34 @@ class ParameterFinder:
     def setImage(self, img):
         self.image = img
 
-    def extract_single_color(self, img):
-        r = img[:,:,0]
-        g = img[:,:,1]
-        b = img[:,:,2]
-        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-        hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
-        h_channel = hls[:,:,0]
-        l_channel = hls[:,:,1]
-        s_channel = hls[:,:,2]
-        return s_channel
+    def extract_single_color(self, img, channel='gray'):
+        hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)  
+        if(channel == 'r'):
+            return img[:,:,0]
+        elif(channel == 'g'):
+            return img[:,:,1]
+        elif(channel == 'b'):
+            return img[:,:,2]
+        elif(channel == 'gray'):
+            return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        elif(channel == 'h'):
+            return hls[:,:,0]
+        elif(channel == 'l'):
+            return hls[:,:,1]
+        elif(channel == 's'):
+            return hls[:,:,2]
+
     
-    def abs_sobel_thresh(self, image, orient='x', sobel_kernel=3, thresh=(0, 255)):
-        self.image = image
+    def abs_sobel_thresh(self, image_binary, orient='x', sobel_kernel=3, thresh=(0, 255)):
+        self.image_binary = image_binary
         self.orient = orient
         self.sobel_kernel = sobel_kernel
         self.thresh = thresh
         # Calculate directional gradient
-        gray = self.extract_single_color(image)
         if orient == 'x':
-            sobel_orient = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=sobel_kernel)
+            sobel_orient = cv2.Sobel(image_binary, cv2.CV_64F, 1, 0, ksize=sobel_kernel)
         elif orient == 'y':
-            sobel_orient = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=sobel_kernel)
+            sobel_orient = cv2.Sobel(image_binary, cv2.CV_64F, 0, 1, ksize=sobel_kernel)
         abs_sobel = np.absolute(sobel_orient)
         scaled_sobel = np.uint8(255*abs_sobel/np.max(abs_sobel))
         # Apply threshold
@@ -211,14 +243,13 @@ class ParameterFinder:
         grad_binary[(scaled_sobel > thresh[0]) & (scaled_sobel < thresh[1])] = 255 #imshow accepts 1 not!
         return grad_binary
 
-    def abs_magn_thresh(self, image, magn_sobel_kernel=3, thresh_2=(0, 255)):
+    def abs_magn_thresh(self, image_binary, magn_sobel_kernel=3, thresh_2=(0, 255)):
         # Calculate gradient magnitude
-        self.image = image
+        self.image_binary = image_binary
         self.magn_sobel_kernel = magn_sobel_kernel
         self.thresh_2 = thresh_2
-        gray = self.extract_single_color(image)
-        sobel_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=magn_sobel_kernel())
-        sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=magn_sobel_kernel())
+        sobel_x = cv2.Sobel(image_binary, cv2.CV_64F, 1, 0, ksize=magn_sobel_kernel())
+        sobel_y = cv2.Sobel(image_binary, cv2.CV_64F, 0, 1, ksize=magn_sobel_kernel())
     #     magn = np.sqrt(sobel_x * sobel_x + sobel_y * sobel_y)
         magn = np.sqrt(np.power(sobel_x,2) + np.power(sobel_y,2))
         scaled_magn = np.uint8(255*magn/np.max(magn))
@@ -227,14 +258,13 @@ class ParameterFinder:
         magn_binary[(scaled_magn > (thresh_2[0])) & (scaled_magn < thresh_2[1])] = 255
         return magn_binary
     
-    def abs_dir_threshold(self, image, dir_sobel_kernel=3, dir_thresh=(-np.pi/2, np.pi/2)):
-        self.image = image
+    def abs_dir_threshold(self, image_binary, dir_sobel_kernel=3, dir_thresh=(-np.pi/2, np.pi/2)):
+        self.image_binary = image_binary
         self.dir_sobel_kernel = dir_sobel_kernel
         self.dir_thresh = dir_thresh
         # Calculate gradient direction
-        gray = self.extract_single_color(image)
-        sobel_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=dir_sobel_kernel)
-        sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=dir_sobel_kernel)
+        sobel_x = cv2.Sobel(image_binary, cv2.CV_64F, 1, 0, ksize=dir_sobel_kernel)
+        sobel_y = cv2.Sobel(image_binary, cv2.CV_64F, 0, 1, ksize=dir_sobel_kernel)
         abs_grad_x = np.absolute(sobel_x)
         abs_grad_y = np.absolute(sobel_y)
         direction_grad = np.arctan2(abs_grad_y, abs_grad_x)
@@ -262,12 +292,20 @@ class ParameterFinder:
 #         output_image = cv2.medianBlur(binary_image, filter_size)
         return output_image
     
-    def abs_threshold(self, image, threshold):
+    def abs_threshold(self, image, thres_low, thres_high=255):
         binary_image = np.zeros_like(image)
-        binary_image[image > threshold] = 255
+        binary_image[(image > thres_low) & (image < thres_high)] = 255
         return binary_image
 
     def _render(self, save_name="no_file_name"):
+        single_channel_h = self.extract_single_color(self.image, 'h')
+        single_channel_l = self.extract_single_color(self.image, 'l')
+        binary_channel_h = self.abs_threshold(single_channel_h, self._h_channel_low, self._h_channel_high)
+        binary_channel_l = self.abs_threshold(single_channel_l, self._l_channel_low, self._l_channel_high)
+
+        channels_binary = np.zeros_like(binary_channel_h)
+        channels_binary[(binary_channel_h > 0) | (binary_channel_l > 0)] = 255
+
         self._sobelx_binary = self.abs_sobel_thresh(self.image, 'x', self._sobelx_filter, (self._sobelx_low, self._sobelx_high))
         self._sobely_binary = self.abs_sobel_thresh(self.image, 'y', self._sobely_filter, (self._sobely_low, self._sobely_high))
         self._mag_binary = self.abs_magn_thresh(self.image, self.magn_filter, (self._magn_low, self._magn_high))
@@ -280,7 +318,7 @@ class ParameterFinder:
         self.combined[((self._sobelx_binary == 255) & (self._sobely_binary == 255)) | (self._mag_binary == 255) | (self._thres_img == 255)] = 255
         # self.combined[((self._sobelx_binary == 255) & (self._sobely_binary == 255)) | (self._mag_binary == 255)] = 255
 
-        self._post_avg_img = self.abs_average(self.combined, self._post_avg_filter)
+        self._post_avg_img = self.abs_average(channels_binary, self._post_avg_filter)
         self._post_thres_img = self.abs_threshold(self._post_avg_img, self._post_thresh)
 
         if save_name == "no_file_name":
@@ -290,11 +328,12 @@ class ParameterFinder:
             cv2.imshow('direction_binary', self._dir_binary)
             cv2.imshow('direction_&_avg', self._avg_img)
             cv2.imshow('direction_&_avg_thresh', self._thres_img)
+            cv2.imshow('channels_binary', channels_binary)
         self.color_binary = np.dstack(( np.zeros_like(self._sobelx_binary),((self._sobelx_binary == 255) & (self._sobely_binary == 255)), ((self._mag_binary == 255) & (self._thres_img == 255)))) * 255
         if save_name == "no_file_name":
-            cv2.imshow('output', self._post_thres_img)
+            cv2.imshow('output', channels_binary)
         else: 
-            cv2.imwrite(f"test_output/{save_name}_output", self._post_thres_img)
+            cv2.imwrite(f"test_output/{save_name}_output",channels_binary)
         # cv2.imshow('output', self.color_binary)
 
     def save_params(self, var_list):
@@ -314,7 +353,7 @@ if __name__ == "__main__":
     # args = parser.parse_args()
     WORKING_DIR = "/home/nbenndo/Documents/Programming/Udacity/SelfDrivingCarND/CarND-Advanced-Lane-Lines/"
     os.chdir(WORKING_DIR)
-    FILENAME = 'test_images/frame30.jpg'
+    FILENAME = 'test_images/test4.jpg'
 
     IMG = cv2.imread(FILENAME)#, cv2.IMREAD_GRAYSCALE)
 
@@ -329,7 +368,8 @@ if __name__ == "__main__":
 
     # cv2.waitKey(0)
 
-    param_finder = ParameterFinder(IMG, sobelx_filter=3, sobelx_low=16, sobelx_high=255, 
+    param_finder = ParameterFinder(IMG, _h_channel_low=96, _h_channel_high=102, _l_channel_low=220, _l_channel_high=255, 
+                                        sobelx_filter=3, sobelx_low=16, sobelx_high=255, 
                                         sobely_filter=3, sobely_low=36, sobely_high=255, 
                                         magn_filter=3, magn_low=15, magn_high=255, 
                                         direction_filter=15, direction_low=229, direction_high=287,
