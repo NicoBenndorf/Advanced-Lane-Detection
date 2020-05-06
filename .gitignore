@@ -4,3 +4,6 @@
 # images
 output_images/*
 test_videos_output/*
+test_images/*
+test_output/*
+video_frames/*
