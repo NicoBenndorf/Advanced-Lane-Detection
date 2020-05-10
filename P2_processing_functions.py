@@ -40,8 +40,9 @@ class line():
         self.last_detected = False  
         self.cnt_last_invalid = 1000
         # number of stored lines detected n
-        self.n = 60
-        self.n_fit = 1
+        self.n = 10
+        self.n_fit = 10
+        self.n_curvature = 60
         # x values of the last n fits of the line
         self.recent_xfitted_buffer = deque()
         self.recent_xfitted = [] 
@@ -116,22 +117,21 @@ class line():
 
     def update(self, img_shape, line_valid, xfitted, fit, radius=0, xvalues=0, yvalues=0):
         # update values:
-        self.line_valid = line_valid
-        if self.line_valid:
+        if line_valid:
             self.cnt_last_invalid = 0
+            self.recent_xfitted = self.update_with_new_values(self.recent_xfitted_buffer, xfitted)
+            self.bestx = self.calc_average(self.recent_xfitted, self.n_fit)
+            self.recent_fit = self.update_with_new_values(self.recent_fit_buffer, fit)
+            self.best_fit = self.calc_average(self.recent_fit, self.n)
+            # calculate metrics:
+            curvature_radius = self.calc_curvature_real(img_shape[0], self.best_fit) 
+            self.recent_radius_of_curvature = self.update_with_new_values(self.recent_radius_of_curvature_buffer, curvature_radius)
+            self.avg_radius_of_curvature = self.calc_average(self.recent_radius_of_curvature, self.n_curvature)
+            # offset = calc_offset()
         else:
             self.cnt_last_invalid += 1
         
-        self.recent_xfitted = self.update_with_new_values(self.recent_xfitted_buffer, xfitted)
-        self.bestx = self.calc_average(self.recent_xfitted, self.n_fit)
-        self.recent_fit = self.update_with_new_values(self.recent_fit_buffer, fit)
-        self.best_fit = self.calc_average(self.recent_fit, self.n)
-        # calculate metrics:
-        curvature_radius = self.calc_curvature_real(img_shape[0], self.best_fit) 
-        self.recent_radius_of_curvature = self.update_with_new_values(self.recent_radius_of_curvature_buffer, curvature_radius)
-        self.avg_radius_of_curvature = self.calc_average(self.recent_radius_of_curvature, self.n_fit)
-        # offset = calc_offset()
-        return curvature_radius, self.bestx, self.best_fit
+        return self.avg_radius_of_curvature, self.bestx, self.best_fit
 
 class lane_markings_detection:
     def __init__(self):
@@ -145,7 +145,7 @@ class lane_markings_detection:
         self.line_left.color = [255,0,0]
         self.line_right.color = [0,0,255]
         # Hyperparameters
-        self.max_cnt_last_invalid = 3
+        self.max_cnt_last_invalid = 5
         
     ## Compute Camera Calibration
     def compute_camera_calibration(self):
@@ -393,9 +393,9 @@ class lane_markings_detection:
         # _2_post_thres_img = self.abs_threshold(_2_post_avg_img, _post_thresh)
 
         # concatenated_binary = np.concatenate((_post_thres_img, _2_post_thres_img), axis=0)
-        concatenated_binary = combined_binary
+        # concatenated_binary = combined_binary
         # concatenated_binary = _post_thres_img
-        # concatenated_binary = channels_binary
+        concatenated_binary = channels_binary
 
         if self.print_output:
             plt.imshow(concatenated_binary, cmap='gray')
@@ -495,7 +495,10 @@ class lane_markings_detection:
         x, y, visual_search_korridor = self.find_lane_marking_pixels(binary_warped, base_x)
 
         # Fit a second order polynomial to each using `np.polyfit` #
-        fit = np.polyfit(y, x, 2)
+        try:
+            fit = np.polyfit(y, x, 2)
+        except TypeError:
+            success = False
 
         # Generate x and y values for plotting
         ploty = np.linspace(0, binary_warped.shape[0]-1, binary_warped.shape[0] )
@@ -504,6 +507,7 @@ class lane_markings_detection:
         except TypeError:
             # Avoids an error if `_fit` is still none or incorrect
             print('The function failed to fit a line!')
+            success = False
             fitx = 1*ploty**2 + 1*ploty
 
         # Visualization #
@@ -514,20 +518,26 @@ class lane_markings_detection:
 
         # Plots the polynomial on the lane_markings lines
         plt.plot(fitx, ploty, color='yellow')
-        
-        #TODO: update line.last_detected!!
 
         return  points_lane_markings, visual_search_korridor, fit, fitx, ploty, success
 
     # search lane_markings based on Polynomial fit values from the previous frame
     def fit_poly(self, img_shape, x, y):
+        success = True
         # Fit a second order polynomial to each with np.polyfit() #
-        fit = np.polyfit(y, x, 2)
-        # Generate x and y values for plotting
-        ploty = np.linspace(0, img_shape[0]-1, img_shape[0])
-        # Calc both polynomials using ploty, fit and right_fit #
-        fitx = fit[0]*ploty**2 + fit[1]*ploty + fit[2]
-        return fitx, ploty, fit
+        try:
+            fit = np.polyfit(y, x, 2)
+            # Generate x and y values for plotting
+            ploty = np.linspace(0, img_shape[0]-1, img_shape[0])
+            # Calc both polynomials using ploty, fit and right_fit #
+            fitx = fit[0]*ploty**2 + fit[1]*ploty + fit[2]
+            return fitx, ploty, fit, success
+        except TypeError:
+            # Avoids an error if `_fit` is still none or incorrect
+            print('The function failed to fit a line!')
+            success = False
+            fitx = 1*ploty**2 + 1*ploty
+            return fitx, ploty, fit, success
 
     def search_polynomial_from_prior(self, binary_warped, line):
         # HYPERPARAMETER
@@ -553,7 +563,10 @@ class lane_markings_detection:
 
         if (x.size > min_pixels_per_line) & (y.size > min_pixels_per_line):
             # fit new polynomial
-            fitx, ploty, fit_new = self.fit_poly(binary_warped.shape, x, y)
+            fitx, ploty, fit_new, success_fit_poly = self.fit_poly(binary_warped.shape, x, y)
+            
+            if not success_fit_poly:
+                success = False
         
             ## Visualization ##
             # Create an image to draw on and an image to show the selection window
@@ -577,7 +590,8 @@ class lane_markings_detection:
             ## End visualization steps ##
         else:
             # reset and start searching from scratch 
-            return False, False, False, False, False, False, False, False
+            success = False
+            # return False, False, False, False, False, False, False, False
 
         return points_lane_markings, visual_search_korridor, fit_new, fitx, ploty, success
 
@@ -594,35 +608,33 @@ class lane_markings_detection:
     def get_line_from_scatch(self, binary_warped_, line,  base_x):
         points_lane_markings, visual_search_korridor, fit, fitx, ploty, success = self.search_new_polynomial_from_scratch(binary_warped_, line, base_x)
         if success: #polyline found
-            return  points_lane_markings, visual_search_korridor, fit, fitx, ploty, success 
-            pass
-        # elif line.cnt_last_invalid < self.max_cnt_last_invalid: # ignore this sample
-        #      return #previous line
-        #     pass
-        # elif line.cnt_last_invalid > self.max_cnt_last_invalid: # error
-        #     # return error
-        #     # generate new binary_img with coarser params for new line search!
+            return  points_lane_markings, visual_search_korridor, fit, fitx, ploty, True 
+
+        elif not success and line.cnt_last_invalid < self.max_cnt_last_invalid: # ignore this sample, return last one;
+             return points_lane_markings, visual_search_korridor, line.recent_fit_buffer[-1], line.recent_xfitted_buffer[-1], ploty, False 
+
+        elif not success and line.cnt_last_invalid > self.max_cnt_last_invalid: # ignore this sample, return last one; TODO idealy recompute binary_image with coarser parameteres and start new line search
+             return points_lane_markings, visual_search_korridor, line.recent_fit_buffer[-1], line.recent_xfitted_buffer[-1], ploty, False 
+            # generate new binary_img with coarser params for new line search!
 
     def detect_single_line(self, binary_warped_, line, base_x):
         if line.cnt_last_invalid < self.max_cnt_last_invalid:
             # searching lane_markings lines from prior 
             points_lane_markings, visual_search_korridor, fit, fitx, ploty, success = self.search_polynomial_from_prior(binary_warped_, line)  
             if success: #polyline found
-                return points_lane_markings, visual_search_korridor, fit, fitx, ploty, success
-            else: 
-                return
-            # elif not success and line.cnt_last_invalid < self.max_cnt_last_invalid: # ignore this sample
-            #     return #previous line
-            #     pass
-            # elif not success and line.cnt_last_invalid > self.max_cnt_last_invalid: # start searching from scratch
-            #      points_lane_markings, visual_search_korridor, fit, fitx, ploty, success = get_line_from_scatch(binary_warped_, line, base_x)
-            #     return #LINE
-            #     pass
+                return points_lane_markings, visual_search_korridor, fit, fitx, ploty, True
+
+            elif not success and line.cnt_last_invalid < self.max_cnt_last_invalid: # ignore this sample, return last one
+                return points_lane_markings, visual_search_korridor, line.recent_fit_buffer[-1], line.recent_xfitted_buffer[-1], ploty, False
+
+            elif not success and line.cnt_last_invalid > self.max_cnt_last_invalid: # start searching from scratch
+                points_lane_markings, visual_search_korridor, fit, fitx, ploty, success_from_scratch = get_line_from_scatch(binary_warped_, line, base_x)
+                return  points_lane_markings, visual_search_korridor, fit, fitx, ploty, False
         else:
             # searching lane_markings line from scratch (sliding window) for startup and fallback
             points_lane_markings, visual_search_korridor, fit, fitx, ploty, success = self.get_line_from_scatch(binary_warped_, line, base_x)
-            if success:
-                return  points_lane_markings, visual_search_korridor, fit, fitx, ploty, success
+            return  points_lane_markings, visual_search_korridor, fit, fitx, ploty, success
+            
 
     def combine_and_show_search_korridor(self, binary_warped_, points_lane_markings_left, points_lane_markings_right, korridor_left, korridor_right):
         korridor_combined = cv2.addWeighted(korridor_left, 1, korridor_right, 1, 0)
@@ -639,24 +651,61 @@ class lane_markings_detection:
         lane_markings = cv2.addWeighted(markings_left, 1, markings_right, 1, 0)
         return lane_markings
 
-    def check_curvature_ok(self, binary_warped_, fit_left, fit_right):
-        max_diff_curvature = 0.00003#TODO:??
+    def check_curvature_left_right_ok(self, binary_warped_, fit_left, fit_right):
+        max_diff_curvature = 1000 #really rough check
         curverad_left = self.line_left.calc_curvature_real(binary_warped_.shape[0], fit_left)
         curverad_right = self.line_left.calc_curvature_real(binary_warped_.shape[0], fit_right)
-        return math.isclose(curverad_left, curverad_right, max_diff_curvature)
+        return math.isclose(curverad_left, curverad_right, abs_tol=max_diff_curvature)
 
-    def check_lines_horiz_distanc_ok(self, binary_warped_, fitx_left, fitx_right):
-        max_valid_dist_in_pixel = 10#TODO:??
-        dist_in_pixel = fitx_left[binary_warped_.shape()[0]-1] - fitx_right[binary_warped_.shape()[0]-1]
-        return dist_in_pixel < max_valid_dist_in_pixel
+    def check_lines_horiz_distance_left_right_ok(self, binary_warped_, fitx_left, fitx_right):
+        valid_dist_in_pixel = 650
+        max_diff_pixel = 50
+        dist_in_pixel = fitx_left[binary_warped_.shape[0]-1] - fitx_right[binary_warped_.shape[0]-1]
+        return math.isclose(dist_in_pixel, valid_dist_in_pixel, abs_tol=max_diff_pixel)
+
+    def check_curvature_new_last_ok(self, binary_warped_, line, fit):
+        max_diff_curvature = 500 #really rough check
+        curverad_new = line.calc_curvature_real(binary_warped_.shape[0], fit)
+        if len(line.recent_radius_of_curvature_buffer) > 0:
+            curverad_avg = line.avg_radius_of_curvature
+        else: # if buffer is empty (after init), ignore check
+            return True 
+        return math.isclose(curverad_avg, curverad_new, abs_tol=max_diff_curvature)
+
+    def check_line_horiz_pos_new_last_ok(self, binary_warped_, line, fitx):
+        max_diff_pos_pixel = 50
+        line_pos_new = fitx[binary_warped_.shape[0]-1]
+        if len(line.recent_xfitted_buffer) > 0:
+            line_pos_avg = line.bestx[binary_warped_.shape[0]-1]        
+        else: # if buffer is empty (after init), ignore check
+            return True 
+        return math.isclose(line_pos_avg, line_pos_new, abs_tol=max_diff_pos_pixel)
+
 
     def validation_check_lane(self, binary_warped_, fit_left, fitx_left, fit_right, fitx_right):
-        curverad_ok = self.check_curvature_ok(binary_warped_, fit_left, fit_right)
-        horiz_dist_ok = self.check_lines_horiz_distanc_ok(binary_warped_, fitx_left, fitx_right)
-        return curverad_ok & horiz_dist_ok
+        curverad_left_right_ok = self.check_curvature_left_right_ok(binary_warped_, fit_left, fit_right)
+        horiz_dist_left_right_ok = self.check_lines_horiz_distance_left_right_ok(binary_warped_, fitx_left, fitx_right)
+        return curverad_left_right_ok & horiz_dist_left_right_ok
 
+    def validation_check_line(self, binary_warped_, line, fit, fitx):
+        curverad_new_last_ok = self.check_curvature_new_last_ok(binary_warped_, line, fit)
+        horiz_pos_new_last_ok = self.check_line_horiz_pos_new_last_ok(binary_warped_, line, fitx)
+        return curverad_new_last_ok & horiz_pos_new_last_ok
 
-    def ensure_valid_lane_and_smoothen(self, binary_warped_, fit_left, fitx_left, fit_right, fitx_right):
+    def update_with_valid_line(self, binary_warped_, line, fit, fitx, base_x):
+        # check if left line is valid in relation to its avg
+            if self.validation_check_line(binary_warped_, line, fit, fitx):
+                line.update(binary_warped_.shape, True, fitx, fit)
+            else:
+                # search line from scratch 
+                points_lane_markings, visual_search_korridor, fit, fitx, ploty, success_ = self.get_line_from_scatch(binary_warped_, line, base_x)
+                if success_: # new line found, or last avg used
+                    line.update(binary_warped_.shape, True, fitx, fit)
+                else:
+                    # if not found: but last line used, update !with is_valid=False! is needed
+                    line.update(binary_warped_.shape, False, fitx_, fit_)
+
+    def ensure_valid_lane_and_smoothen(self, binary_warped_, fit_left, fitx_left, fit_right, fitx_right, base_leftx, base_rightx):
         # check realtion
         lane_valid = self.validation_check_lane(binary_warped_, fit_left, fitx_left, fit_right, fitx_right)
         # if relation check ok: update prior lines 
@@ -664,27 +713,12 @@ class lane_markings_detection:
             self.line_left.update(binary_warped_.shape(), lane_valid, fitx_left, fit_left)
             self.line_right.update(binary_warped_.shape(), lane_valid, fitx_right, fit_right)
         else:
-            change_is_small_left = self.compare_change_to_last_line()
-            change_is_small_right = self.compare_change_to_last_line()
-            if change_is_small_left:
-                self.line_left.update(binary_warped_.shape(), lane_valid, fitx_left, fit_left)
-            else:
-                # search left line from scratch 
-                # if found: update
-                # if not found: but last line used, update !with is_valid=False! is needed
-                # if not found at all error!
-                pass
-            if change_is_small_right:
-                self.line_right.update(binary_warped_.shape(), lane_valid, fitx_right, fit_right)
-            else:
-                # search left line from scratch 
-                # if found: update
-                # if not found: but last line used, update !with is_valid=False! is needed
-                # if not found at all error!
-                pass
-            lane_valid_now = self.validation_check_lane(binary_warped_, fit_left, fitx_left, fit_right, fitx_right)
-            assert(lane_valid_now == True)
-            # else: create binary_img with coarser params and find lines new!
+            # check if left line is valid in relation to its avg
+            self.update_with_valid_line(binary_warped_, self.line_left, fit_left, fitx_left, base_leftx)
+
+            # check if right line is valid in relation to its avg
+            self.update_with_valid_line(binary_warped_, self.line_right, fit_right, fitx_right, base_rightx)
+
         # provide valid lines
         return self.line_left.best_fit, self.line_left.bestx, self.line_right.best_fit, self.line_right.bestx
     
@@ -696,8 +730,8 @@ class lane_markings_detection:
         # detect line right
         points_lane_markings_right, visual_search_korridor_right, fit_right, fitx_right, ploty_right, success_right = self.detect_single_line(binary_warped_, self.line_right, base_rightx)
         
-        #TODO: validation checker here!! Update cnt_is_valid_value
-        # fit_left, fitx_left, fit_right, fitx_right = self.ensure_valid_lane_and_smoothen(binary_warped_, fit_left, fitx_left, fit_right, fitx_right)
+        # validation checker here!! Update cnt_is_valid_value
+        fit_left, fitx_left, fit_right, fitx_right = self.ensure_valid_lane_and_smoothen(binary_warped_, fit_left, fitx_left, fit_right, fitx_right, base_leftx, base_rightx)
 
         colored_lane_markings = self.combine_lane_markings(binary_warped_, points_lane_markings_left, points_lane_markings_right)
         self.combine_and_show_search_korridor(binary_warped_, points_lane_markings_left, points_lane_markings_right, visual_search_korridor_left, visual_search_korridor_right)
@@ -768,11 +802,16 @@ class lane_markings_detection:
         #TODO: DELETE AFTER - TESTING:
         curverad_left = self.line_left.calc_curvature_real(binary_warped_.shape[0], fit_left)
         curverad_right = self.line_left.calc_curvature_real(binary_warped_.shape[0], fit_right)
+        horz_dist_lines_pixel = fitx_right[binary_warped_.shape[0]-1] - fitx_left[binary_warped_.shape[0]-1]
+        pos_left_pixel = fitx_left[binary_warped_.shape[0]-1]
+        pos_right_pixel = fitx_right[binary_warped_.shape[0]-1]
 
         text_rad_left = "Rad_left: %4.0fm" % curverad_left
         text_rad_right = "Rad_right: %4.0fm" % curverad_right
+        # text_dist_lines = "pos_line_left: %1.2f pixel  " % pos_left_pixel
         cv2.putText(result_annotated, text_rad_left, (50,200),font,fontscale,color,thickness)
         cv2.putText(result_annotated, text_rad_right, (600,200),font,fontscale,color,thickness)
+        # cv2.putText(result_annotated, text_dist_lines, (50,300),font,fontscale,color,thickness)
         #TODO: DELETE ABOVE
 
         cv2.putText(result_annotated, text_curvature, (50,50),font,fontscale,color,thickness)
@@ -804,12 +843,12 @@ class lane_markings_detection:
         img_combined_binary = self.image_to_thresholded_binary(img_undist)
         imgbinary_warped_, perspective_M, perspective_Minv = self.unwarp(img_combined_binary)
         lane_markings, left_fit, right_fit, left_fitx, right_fitx, ploty = self.detect_lines(imgbinary_warped_)
-        #TODO: update within detect_lane_markings
-        left_curverad, left_best_fitx, left_best_fit = self.line_left.update(img_shape, True, left_fitx, left_fit)
-        right_curverad, right_best_fitx, right_best_fit = self.line_right.update(img_shape,True, right_fitx, right_fit)
-        img_result_lane_markings = self.warp_back_on_original(imgbinary_warped_, img_undist, left_best_fitx, right_best_fitx, ploty, perspective_Minv)
-        offset_lane_markings_center = self.calc_offset_lane_markings_center(left_best_fitx, right_best_fitx, img_shape, roi_offset)
-        result_annotated = self.annotate_lane_markings_markings(img_result_lane_markings, lane_markings, perspective_Minv, right_curverad, offset_lane_markings_center, left_fit, left_fitx, right_fit, right_fitx,_img_input)
+        # delete update:
+        # left_curverad, left_best_fitx, left_best_fit = self.line_left.update(img_shape, True, left_fitx, left_fit)
+        # right_curverad, right_best_fitx, right_best_fit = self.line_right.update(img_shape,True, right_fitx, right_fit)
+        img_result_lane_markings = self.warp_back_on_original(imgbinary_warped_, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
+        offset_lane_markings_center = self.calc_offset_lane_markings_center(left_fitx, right_fitx, img_shape, roi_offset)
+        result_annotated = self.annotate_lane_markings_markings(img_result_lane_markings, lane_markings, perspective_Minv, self.line_right.avg_radius_of_curvature, offset_lane_markings_center, left_fit, left_fitx, right_fit, right_fitx,_img_input)
         # result_annotated = self.annotate_lane_markings_markings(img_result_lane_markings, lane_markings, perspective_Minv, right_curverad, offset_lane_markings_center)
         return result_annotated
 
@@ -826,10 +865,10 @@ class lane_markings_detection:
         ## Where start_second and end_second are integer va|ues representing the start and end of the subclip
         ## You may also uncomment the following line for a subclip of the first 5 seconds
         # clip1 = VideoFileClip("project_video.mp4").subclip(24,26)
-        # clip1 = VideoFileClip("project_video.mp4").subclip(38,42)
+        clip1 = VideoFileClip("project_video.mp4").subclip(38,42)
         # clip1 = VideoFileClip("project_video.mp4").subclip(32,42)
-        clip1 = VideoFileClip("project_video.mp4").subclip(39,41)
-        # clip1 = VideoFileClip("project_video.mp4")
+        # clip1 = VideoFileClip("project_video.mp4").subclip(39,41)
+        # clip1 = VideoFileClip("project_video.mp4").subclip(50)
         white_clip = clip1.fl_image(self.process_image) #NOTE: this function expects color images!!
         # white_clip = clip1.fl_image(self.save_frames_of_video) #NOTE: this function expects color images!!
         white_clip.write_videofile(white_output, audio=False)    
