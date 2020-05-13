@@ -40,8 +40,8 @@ class line():
         self.last_detected = False  
         self.cnt_last_invalid = 1000
         # number of stored lines detected n
-        self.n = 10
         self.n_fit = 10
+        self.n_fitx = 10
         self.n_curvature = 60
         # x values of the last n fits of the line
         self.recent_xfitted_buffer = deque()
@@ -71,9 +71,9 @@ class line():
     
 
 
-    def update_with_new_values(self, my_deque, new_values):
+    def update_with_new_values(self, my_deque, new_values, n):
         my_deque.appendleft(new_values)
-        while len(my_deque) > self.n:
+        while len(my_deque) > n:
             my_deque.pop()
         my_values = []
         for i in range(0, len(my_deque)):
@@ -119,13 +119,13 @@ class line():
         # update values:
         if line_valid:
             self.cnt_last_invalid = 0
-            self.recent_xfitted = self.update_with_new_values(self.recent_xfitted_buffer, xfitted)
-            self.bestx = self.calc_average(self.recent_xfitted, self.n_fit)
-            self.recent_fit = self.update_with_new_values(self.recent_fit_buffer, fit)
-            self.best_fit = self.calc_average(self.recent_fit, self.n)
+            self.recent_xfitted = self.update_with_new_values(self.recent_xfitted_buffer, xfitted, self.n_fitx)
+            self.bestx = self.calc_average(self.recent_xfitted, self.n_fitx)
+            self.recent_fit = self.update_with_new_values(self.recent_fit_buffer, fit, self.n_fit)
+            self.best_fit = self.calc_average(self.recent_fit, self.n_fit)
             # calculate metrics:
             curvature_radius = self.calc_curvature_real(img_shape[0], self.best_fit) 
-            self.recent_radius_of_curvature = self.update_with_new_values(self.recent_radius_of_curvature_buffer, curvature_radius)
+            self.recent_radius_of_curvature = self.update_with_new_values(self.recent_radius_of_curvature_buffer, curvature_radius, self.n_curvature)
             self.avg_radius_of_curvature = self.calc_average(self.recent_radius_of_curvature, self.n_curvature)
             # offset = calc_offset()
         else:
@@ -145,7 +145,15 @@ class lane_markings_detection:
         self.line_left.color = [255,0,0]
         self.line_right.color = [0,0,255]
         # Hyperparameters
-        self.max_cnt_last_invalid = 5
+        self.max_cnt_last_invalid = 1
+        self.avg_min_warmup_samples_offset = 3
+        self.avg_min_warmup_samples_curve = 10
+
+        #TODO: DELETE - GLOBAL DEBUGGING VARS
+        self.check_cnt_all = 0
+        self.check_lane_ok = 0
+        self.check_line_left_ok = 0
+        self.check_line_right_ok = 0
         
     ## Compute Camera Calibration
     def compute_camera_calibration(self):
@@ -269,7 +277,7 @@ class lane_markings_detection:
 
     def image_to_thresholded_binary(self, _img_undist):
         _h_channel_low = 96
-        _h_channel_high = 102
+        _h_channel_high = 101
         _l_channel_low = 220
         _l_channel_high = 255
 
@@ -653,29 +661,32 @@ class lane_markings_detection:
 
     def check_curvature_left_right_ok(self, binary_warped_, fit_left, fit_right):
         max_diff_curvature = 1000 #really rough check
-        curverad_left = self.line_left.calc_curvature_real(binary_warped_.shape[0], fit_left)
-        curverad_right = self.line_left.calc_curvature_real(binary_warped_.shape[0], fit_right)
+        if len( self.line_left.recent_radius_of_curvature) > self.avg_min_warmup_samples_curve and len(self.line_right.recent_radius_of_curvature) > self.avg_min_warmup_samples_curve:
+            curverad_left = self.line_left.calc_curvature_real(binary_warped_.shape[0], fit_left)
+            curverad_right = self.line_left.calc_curvature_real(binary_warped_.shape[0], fit_right)
+        else:
+            return True
         return math.isclose(curverad_left, curverad_right, abs_tol=max_diff_curvature)
 
     def check_lines_horiz_distance_left_right_ok(self, binary_warped_, fitx_left, fitx_right):
         valid_dist_in_pixel = 650
         max_diff_pixel = 50
-        dist_in_pixel = fitx_left[binary_warped_.shape[0]-1] - fitx_right[binary_warped_.shape[0]-1]
+        dist_in_pixel = fitx_right[binary_warped_.shape[0]-1] - fitx_left[binary_warped_.shape[0]-1]
         return math.isclose(dist_in_pixel, valid_dist_in_pixel, abs_tol=max_diff_pixel)
 
     def check_curvature_new_last_ok(self, binary_warped_, line, fit):
-        max_diff_curvature = 500 #really rough check
+        max_diff_curvature = 500 # 500 really rough check
         curverad_new = line.calc_curvature_real(binary_warped_.shape[0], fit)
-        if len(line.recent_radius_of_curvature_buffer) > 0:
+        if len(line.recent_radius_of_curvature) > self.avg_min_warmup_samples_offset:
             curverad_avg = line.avg_radius_of_curvature
         else: # if buffer is empty (after init), ignore check
             return True 
         return math.isclose(curverad_avg, curverad_new, abs_tol=max_diff_curvature)
 
     def check_line_horiz_pos_new_last_ok(self, binary_warped_, line, fitx):
-        max_diff_pos_pixel = 50
+        max_diff_pos_pixel = 50 # 50
         line_pos_new = fitx[binary_warped_.shape[0]-1]
-        if len(line.recent_xfitted_buffer) > 0:
+        if len(line.recent_xfitted) > self.avg_min_warmup_samples_offset:
             line_pos_avg = line.bestx[binary_warped_.shape[0]-1]        
         else: # if buffer is empty (after init), ignore check
             return True 
@@ -696,22 +707,38 @@ class lane_markings_detection:
         # check if left line is valid in relation to its avg
             if self.validation_check_line(binary_warped_, line, fit, fitx):
                 line.update(binary_warped_.shape, True, fitx, fit)
+                if line == self.line_left:
+                    self.check_line_left_ok += 1
+                if line == self.line_right:
+                    self.check_line_right_ok += 1
             else:
+                # if line == self.line_left:
+                #     self.check_line_left_ok = False
+                # if line == self.line_right:
+                #     self.check_line_right_ok = False
                 # search line from scratch 
                 points_lane_markings, visual_search_korridor, fit, fitx, ploty, success_ = self.get_line_from_scatch(binary_warped_, line, base_x)
-                if success_: # new line found, or last avg used
+                if success_ & self.validation_check_line(binary_warped_, line, fit, fitx): # new line found & valid
                     line.update(binary_warped_.shape, True, fitx, fit)
+                    if line == self.line_left:
+                        self.check_line_left_ok += 1
+                    if line == self.line_right:
+                        self.check_line_right_ok += 1
+                elif success_: # new line found but unvalid: last avg used
+                    line.update(binary_warped_.shape, False, fitx, fit)
                 else:
-                    # if not found: but last line used, update !with is_valid=False! is needed
+                    # no polyline found: but last line used, update !with is_valid=False! is needed
                     line.update(binary_warped_.shape, False, fitx_, fit_)
 
     def ensure_valid_lane_and_smoothen(self, binary_warped_, fit_left, fitx_left, fit_right, fitx_right, base_leftx, base_rightx):
         # check realtion
         lane_valid = self.validation_check_lane(binary_warped_, fit_left, fitx_left, fit_right, fitx_right)
         # if relation check ok: update prior lines 
+        self.check_cnt_all += 1
         if lane_valid:
-            self.line_left.update(binary_warped_.shape(), lane_valid, fitx_left, fit_left)
-            self.line_right.update(binary_warped_.shape(), lane_valid, fitx_right, fit_right)
+            self.check_lane_ok += 1
+            self.line_left.update(binary_warped_.shape, lane_valid, fitx_left, fit_left)
+            self.line_right.update(binary_warped_.shape, lane_valid, fitx_right, fit_right)
         else:
             # check if left line is valid in relation to its avg
             self.update_with_valid_line(binary_warped_, self.line_left, fit_left, fitx_left, base_leftx)
@@ -808,10 +835,13 @@ class lane_markings_detection:
 
         text_rad_left = "Rad_left: %4.0fm" % curverad_left
         text_rad_right = "Rad_right: %4.0fm" % curverad_right
+
+        text_debugging = "Cnt_ok[all|lane|left|right]:%2.0d|%2.0d|%2.0d|%2.0d" % (self.check_cnt_all, self.check_lane_ok, self.check_line_left_ok, self.check_line_right_ok)
         # text_dist_lines = "pos_line_left: %1.2f pixel  " % pos_left_pixel
         cv2.putText(result_annotated, text_rad_left, (50,200),font,fontscale,color,thickness)
         cv2.putText(result_annotated, text_rad_right, (600,200),font,fontscale,color,thickness)
         # cv2.putText(result_annotated, text_dist_lines, (50,300),font,fontscale,color,thickness)
+        cv2.putText(result_annotated, text_debugging, (50,300),font,fontscale,color,thickness)
         #TODO: DELETE ABOVE
 
         cv2.putText(result_annotated, text_curvature, (50,50),font,fontscale,color,thickness)
@@ -865,10 +895,10 @@ class lane_markings_detection:
         ## Where start_second and end_second are integer va|ues representing the start and end of the subclip
         ## You may also uncomment the following line for a subclip of the first 5 seconds
         # clip1 = VideoFileClip("project_video.mp4").subclip(24,26)
-        clip1 = VideoFileClip("project_video.mp4").subclip(38,42)
+        # clip1 = VideoFileClip("project_video.mp4").subclip(38,42)
         # clip1 = VideoFileClip("project_video.mp4").subclip(32,42)
         # clip1 = VideoFileClip("project_video.mp4").subclip(39,41)
-        # clip1 = VideoFileClip("project_video.mp4").subclip(50)
+        clip1 = VideoFileClip("project_video.mp4").subclip(0)
         white_clip = clip1.fl_image(self.process_image) #NOTE: this function expects color images!!
         # white_clip = clip1.fl_image(self.save_frames_of_video) #NOTE: this function expects color images!!
         white_clip.write_videofile(white_output, audio=False)    
