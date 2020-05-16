@@ -145,7 +145,7 @@ class lane_markings_detection:
         self.line_left.color = [255,0,0]
         self.line_right.color = [0,0,255]
         # Hyperparameters
-        self.max_cnt_last_invalid = 1
+        self.max_cnt_last_invalid = 3
         self.avg_min_warmup_samples_offset = 3
         self.avg_min_warmup_samples_curve = 10
 
@@ -660,7 +660,7 @@ class lane_markings_detection:
         return lane_markings
 
     def check_curvature_left_right_ok(self, binary_warped_, fit_left, fit_right):
-        max_diff_curvature = 1000 #really rough check
+        max_diff_curvature = 500 #really rough check
         if len( self.line_left.recent_radius_of_curvature) > self.avg_min_warmup_samples_curve and len(self.line_right.recent_radius_of_curvature) > self.avg_min_warmup_samples_curve:
             curverad_left = self.line_left.calc_curvature_real(binary_warped_.shape[0], fit_left)
             curverad_right = self.line_left.calc_curvature_real(binary_warped_.shape[0], fit_right)
@@ -684,7 +684,7 @@ class lane_markings_detection:
         return math.isclose(curverad_avg, curverad_new, abs_tol=max_diff_curvature)
 
     def check_line_horiz_pos_new_last_ok(self, binary_warped_, line, fitx):
-        max_diff_pos_pixel = 50 # 50
+        max_diff_pos_pixel = 250 # 250
         line_pos_new = fitx[binary_warped_.shape[0]-1]
         if len(line.recent_xfitted) > self.avg_min_warmup_samples_offset:
             line_pos_avg = line.bestx[binary_warped_.shape[0]-1]        
@@ -895,10 +895,10 @@ class lane_markings_detection:
         ## Where start_second and end_second are integer va|ues representing the start and end of the subclip
         ## You may also uncomment the following line for a subclip of the first 5 seconds
         # clip1 = VideoFileClip("project_video.mp4").subclip(24,26)
-        # clip1 = VideoFileClip("project_video.mp4").subclip(38,42)
+        clip1 = VideoFileClip("project_video.mp4").subclip(38,42)
         # clip1 = VideoFileClip("project_video.mp4").subclip(32,42)
         # clip1 = VideoFileClip("project_video.mp4").subclip(39,41)
-        clip1 = VideoFileClip("project_video.mp4").subclip(0)
+        # clip1 = VideoFileClip("project_video.mp4").subclip(0)
         white_clip = clip1.fl_image(self.process_image) #NOTE: this function expects color images!!
         # white_clip = clip1.fl_image(self.save_frames_of_video) #NOTE: this function expects color images!!
         white_clip.write_videofile(white_output, audio=False)    
