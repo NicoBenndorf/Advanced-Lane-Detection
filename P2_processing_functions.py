@@ -15,16 +15,16 @@ from IPython.display import HTML
 from collections import deque
 
 
-def cvt_bgr2rgb(_img_bgr):
-    return cv2.cvtColor(_img_bgr, cv2.COLOR_BGR2RGB)
+def cvt_bgr2rgb(img_bgr):
+    return cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
 
-def plot_2(_img_1, _img_2, heading_1="", heading_2=""):
+def plot_2(img_1, img_2, heading_1="", heading_2=""):
     # plotting
     f, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 9))
     f.tight_layout()
-    ax1.imshow(_img_1, cmap='gray')
+    ax1.imshow(img_1, cmap='gray')
     ax1.set_title(heading_1, fontsize=50)
-    ax2.imshow(_img_2, cmap='gray')
+    ax2.imshow(img_2, cmap='gray')
     ax2.set_title(heading_2, fontsize=50)
     plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
     
@@ -266,15 +266,15 @@ class lane_markings_detection:
         binary_image[(image > thres_low) & (image < thres_high)] = 255
         return binary_image
 
-    def image_to_thresholded_binary(self, _img_undist):
+    def image_to_thresholded_binary(self, img_undist):
         _h_channel_low = 96
         _h_channel_high = 101
         _l_channel_low = 220
         _l_channel_high = 255
 
-        _img_undist_extract = _img_undist.copy()
-        single_channel_h = self.extract_single_color(_img_undist_extract, 'h')
-        single_channel_l = self.extract_single_color(_img_undist_extract, 'l')
+        img_undist_extract = img_undist.copy()
+        single_channel_h = self.extract_single_color(img_undist_extract, 'h')
+        single_channel_l = self.extract_single_color(img_undist_extract, 'l')
         binary_channel_h = self.abs_threshold(single_channel_h, _h_channel_low, _h_channel_high)
         binary_channel_l = self.abs_threshold(single_channel_l, _l_channel_low, _l_channel_high)
 
@@ -287,19 +287,13 @@ class lane_markings_detection:
         return channels_binary
 
     ## Apply a perspective transform to rectify binary image (bird-eye view)
-    def unwarp(self, _img):
-        # define 4 source points 
-        src = np.float32([[165,_img.shape[0]],[596,447],[681,447],[1124,_img.shape[0]]])
-
-        # define 4 destination points 
-        dst = np.float32([[300,_img.shape[0]],[300,0],[950,0],[950,_img.shape[0]]])
-        
+    def warp(self, img, src, dst):
         # get perspective transform
         M =  cv2.getPerspectiveTransform(src, dst)
         Minv = cv2.getPerspectiveTransform(dst, src)
         
         # warp your image to a top-down view
-        img_warped = cv2.warpPerspective(_img, M, _img.shape[1::-1], flags=cv2.INTER_LINEAR)
+        img_warped = cv2.warpPerspective(img, M, img.shape[1::-1], flags=cv2.INTER_LINEAR)
 
         if self.print_output:
             plt.imshow(cvt_bgr2rgb(img_warped))
@@ -494,7 +488,7 @@ class lane_markings_detection:
 
         elif not success and line.cnt_last_invalid > self.max_cnt_last_invalid: # ignore this sample, return last one; TODO idealy recompute binary_image with coarser parameteres and start new line search
              return points_lane_markings, visual_search_korridor, line.recent_fit_buffer[-1], line.recent_xfitted_buffer[-1], ploty, False 
-            # generate new binary_img with coarser params for new line search!
+            # generate new binaryimg with coarser params for new line search!
 
     def detect_single_line(self, binary_warped_, line, base_x):
         if line.cnt_last_invalid < self.max_cnt_last_invalid:
@@ -636,7 +630,7 @@ class lane_markings_detection:
         return left_curverad, right_curverad
     
     ## Warp the detected lane_markings boundaries back onto the original image.
-    def warp_back_on_original(self, binary_warped_, _img_undist, _left_fitx, _right_fitx, _ploty, _perspective_Minv):
+    def warp_back_on_original(self, binary_warped_, img_undist, _left_fitx, _right_fitx, _ploty, _perspective_Minv):
         # Create an image to draw the lines on
         warp_zero = np.zeros_like(binary_warped_).astype(np.uint8)
         color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
@@ -653,16 +647,16 @@ class lane_markings_detection:
         rewarp_annotated = cv2.warpPerspective(color_warp, _perspective_Minv, (binary_warped_.shape[1], binary_warped_.shape[0])) 
 
         # Combine the result with the original image
-        result_lane_markings = cv2.addWeighted(_img_undist, 1, rewarp_annotated, 0.3, 0)
+        result_lane_markings = cv2.addWeighted(img_undist, 1, rewarp_annotated, 0.3, 0)
         
         result_bgr = cv2.cvtColor(result_lane_markings, cv2.COLOR_RGB2BGR)
         return result_lane_markings
 
     ## Output visual display of the lane_markings boundaries and numerical estimation of lane_markings curvature and vehicle position
     # warp output back to original perspective (for overlay annotation)
-    def annotate_lane_markings_markings(self, _img_result_lane_markings, _lane_markings, _perspective_Minv, _curverad, _offset_lane_markings_center):
-        rewarp_lane_markings_markings = cv2.warpPerspective(_lane_markings, _perspective_Minv, (_img_result_lane_markings.shape[1], _img_result_lane_markings.shape[0])) 
-        result_annotated = cv2.addWeighted(_img_result_lane_markings, 0.7, rewarp_lane_markings_markings, 1, 0)
+    def annotate_lane_markings_markings(self, img_result_lane_markings, _lane_markings, _perspective_Minv, _curverad, _offset_lane_markings_center):
+        rewarp_lane_markings_markings = cv2.warpPerspective(_lane_markings, _perspective_Minv, (img_result_lane_markings.shape[1], img_result_lane_markings.shape[0])) 
+        result_annotated = cv2.addWeighted(img_result_lane_markings, 0.7, rewarp_lane_markings_markings, 1, 0)
 
         # create text output for numerial estimations
         font = cv2.FONT_HERSHEY_SIMPLEX 
@@ -685,30 +679,34 @@ class lane_markings_detection:
             plt.show()
         return result_annotated
     
-    def calc_offset_lane_markings_center(self, _left_best_fitx, _right_best_fitx, _img_shape, _roi_offset):
-        meter_per_pixel = 3.7 / (_right_best_fitx[_img_shape[0]-1] - _left_best_fitx[_img_shape[0]-1])  # lane_markings is roughly 3.7m wide
-        middle_of_lane_markings_in_roi = _left_best_fitx[_img_shape[0]-1] + (_right_best_fitx[_img_shape[0]-1] - _left_best_fitx[_img_shape[0]-1])/2 
-        middle_of_image_in_roi = _img_shape[1]//2
+    def calc_offset_lane_markings_center(self, _left_best_fitx, _right_best_fitx, img_shape, _roi_offset):
+        meter_per_pixel = 3.7 / (_right_best_fitx[img_shape[0]-1] - _left_best_fitx[img_shape[0]-1])  # lane_markings is roughly 3.7m wide
+        middle_of_lane_markings_in_roi = _left_best_fitx[img_shape[0]-1] + (_right_best_fitx[img_shape[0]-1] - _left_best_fitx[img_shape[0]-1])/2 
+        middle_of_image_in_roi = img_shape[1]//2
         offset_lane_markings_center_roi = middle_of_lane_markings_in_roi - middle_of_image_in_roi
-        offset_lane_markings_center_img = offset_lane_markings_center_roi - _roi_offset 
-        offset_in_meter = offset_lane_markings_center_img * meter_per_pixel
+        offset_lane_markings_centerimg = offset_lane_markings_center_roi - _roi_offset 
+        offset_in_meter = offset_lane_markings_centerimg * meter_per_pixel
         return offset_in_meter
 
     def write_bgr(self, filepath, img_bgr):
         cv2.imwrite(filepath, cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
 
     ## Video lane_markings detection ##
-    def process_image(self, _img_input):
-        img_shape = _img_input.shape
+    def process_image(self, img_input):
+        img_shape = img_input.shape
         roi_offset = abs(200 - (img_shape[1] - 1124))/2 # depending on warp points
         
-        img_undist = self.undistort_image(_img_input, mtx, dist)
+        img_undist = self.undistort_image(img_input, mtx, dist)
         if ld.write_output:
             self.write_bgr("output_images/3_input_undistorted.jpg", img_undist)
         img_binary = self.image_to_thresholded_binary(img_undist)
         if ld.write_output:
             cv2.imwrite("output_images/4_binary.jpg", img_binary)
-        img_binary_warped, perspective_M, perspective_Minv = self.unwarp(img_binary)
+        # define 4 source points 
+        warp_src = np.float32([[165,img.shape[0]],[596,447],[681,447],[1124,img.shape[0]]])
+        # define 4 destination points 
+        warp_dst = np.float32([[300,img.shape[0]],[300,0],[950,0],[950,img.shape[0]]])
+        img_binary_warped, perspective_M, perspective_Minv = self.warp(img_binary, warp_src, warp_dst)
         if ld.write_output:
             cv2.imwrite("output_images/5_binary_warped.jpg", img_binary_warped)
         lane_markings, left_fit, right_fit, left_fitx, right_fitx, ploty = self.detect_lines(img_binary_warped)
@@ -763,7 +761,7 @@ if __name__ == "__main__":
         # roi_offset = abs(200 - (img_shape[1] - 1124))/2 # depending on warp points
 
         # img_combined_binary = ld.image_to_thresholded_binary(img_undist)
-        # imgbinary_warped_, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
+        # imgbinary_warped_, perspective_M, perspective_Minv = ld.warp(img_combined_binary)
         # img_fittet_lane_markings, lane_markings, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lines(imgbinary_warped_)
         # left_curverad, left_best_fitx, left_best_fit = ld.line_left.update(img_shape, True, left_fitx, left_fit)
         # right_curverad, right_best_fitx, right_best_fit = ld.line_right.update(img_shape,True, right_fitx, right_fit)
@@ -775,7 +773,7 @@ if __name__ == "__main__":
         # img_undist = ld.undistort_image(img_input, mtx, dist)
 
         # img_combined_binary = ld.image_to_thresholded_binary(img_undist)
-        # imgbinary_warped_, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
+        # imgbinary_warped_, perspective_M, perspective_Minv = ld.warp(img_combined_binary)
         # img_fittet_lane_markings, lane_markings, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lines(imgbinary_warped_)
         # left_curverad, left_best_fitx, left_best_fit = ld.line_left.update(img_shape, True, left_fitx, left_fit)
         # right_curverad, right_best_fitx, right_best_fit = ld.line_right.update(img_shape,True, right_fitx, right_fit)
@@ -788,7 +786,7 @@ if __name__ == "__main__":
         # img_undist = ld.undistort_image(img_input, mtx, dist)
 
         # img_combined_binary = ld.image_to_thresholded_binary(img_undist)
-        # imgbinary_warped_, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
+        # imgbinary_warped_, perspective_M, perspective_Minv = ld.warp(img_combined_binary)
         # img_fittet_lane_markings, lane_markings, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lines(imgbinary_warped_)
         # left_curverad, left_best_fitx, left_best_fit = ld.line_left.update(img_shape, True, left_fitx, left_fit)
         # right_curverad, right_best_fitx, right_best_fit = ld.line_right.update(img_shape,True, right_fitx, right_fit)
