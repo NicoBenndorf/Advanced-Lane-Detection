@@ -1,8 +1,4 @@
-## Writeup Template
-
-### You can use this file as a template for your writeup if you want to submit it as a markdown file, but feel free to use some other method and submit a pdf if you prefer.
-
----
+## Writeup 
 
 **Advanced Lane Finding Project**
 
@@ -43,7 +39,7 @@ All functions used for the processing are located in the file called `P2_process
 
 #### 1. Compute the camera matrix and distortion coefficients.
 
-The code for this step is contained in the functions 'compute_camera_calibration()' and 'undistort_image()' in lines 151 through 192).  
+The code for this step is contained in the functions `compute_camera_calibration()` and `undistort_image()` in lines 151 through 192.  
 
 First I prepare "object points", which will be the (x, y, z) coordinates of the chessboard corners in the world. Here I am assuming the chessboard is fixed on the (x, y) plane at z=0, such that the object points are the same for each calibration image.  Thus, `objp` is just a replicated array of coordinates, and `objpoints` will be appended with a copy of it every time I successfully detect all chessboard corners in a test image.  `imgpoints` will be appended with the (x, y) pixel position of each of the corners in the image plane with each successful chessboard detection.  
 
@@ -55,7 +51,7 @@ I then used the output `objpoints` and `imgpoints` to compute the camera calibra
 
 #### 1. Input image distortion correction.
 
-In this step I use the distortion coefficients from the calibration step and 'undistort_image()' to undistort the input image. This is the result of the undistortion for one of the input images:
+In this step I use the distortion coefficients from the calibration step and `undistort_image()` to undistort the input image. This is the result of the undistortion for one of the input images:
 ![alt text][image3]
 
 #### 2. Color transforms to create a thresholded binary image.
@@ -64,7 +60,7 @@ For seperating the lane markings from the background I convert the input image i
 
 ![alt text][image4]
 
-#### 3. Perform a perspective transform to generate a bird-eye-view.
+#### 3. Perform a perspective transform to generate a birds-eye-view.
 
 The code for my perspective transform includes a function called `warp()`, which appears in lines 290 through 301.  The `warp()` function takes as inputs an image (`img`), as well as source (`src`) and destination (`dst`) points. I chose to hardcode the source and destination points in the following manner:
 
@@ -96,7 +92,7 @@ I verified that my perspective transform was working as expected by drawing the 
 
 #### 4. Identify lane-line pixels and fit their positions with a polynomial.
 
-Now I have detected the lane markings and warped the input image to birds-eye-view. As next step I want to identify the pixels that are part of the left and right lane-markings to fit a polynomial.
+Now I have detected the lane markings and warped the input image to birds-eye-view. As next step I want to identify the pixels that are part of the left and right lane-markings to fit a polynomial. For this we can use two different approaches dependent on if we have a prior detection or not.
 
 ##### Search from scratch
 
@@ -106,22 +102,22 @@ For seperating the left and right lane-markings I devide the image vertically (a
 
 ##### Search from prior
 
-In the case that we have already found a the polylines before we do not have to search from scratch again. We can search along the prior detected polylines and save processing time. For this I add a margin aroung the prior polylines and select all pixels withing. Then I can fit my new polylines again. In my code this is done in the `search_polynomial_from_prior()` function. The approach to search from a prior polynom can result in a bad detection so I implemented a check if the new polylines make sence (in the code from line 548 to 575. Triggered by the function `validation_check_line()` ). This check compares the fitted line against the last x detections (realised with a `line` class in line 35 to 132 that stores the last x fitted lines). The output of the search from prior is displayed in the following image:
+In the case that we have already found a the polylines before we do not have to search from scratch again. We can search along the prior detected polylines and save processing time. For this I add a margin aroung the prior polylines and select all pixels within. Then I can fit my new polylines again. In my code this is done in the `search_polynomial_from_prior()` function. The approach to search from a prior polynom can result in a bad detection so I implemented a check if the new polylines make sence (in the code from line 548 to 575. Triggered by the function `validation_check_line()` ). This check compares the fitted line against the last 10 detections (realised with a `line` class in line 35 to 132 that stores the last 10 fitted lines). The output of the search from prior is displayed in the following image:
 
 ![alt text][image7.2]
 
 ##### Sanity check and smoothing
 
-After fitting the left and the right polyline I do an additional sanity check if the left and right line actually represent a lane line. The function `validation_check_lane()` triggers this check and compares the curvature as well as the distance of both polylines. If the lines are not valid I do another check for each the left and right line against the prior lines. If a line is not valid I use the average over the last 10 successfully fitted lines.
+After fitting the left and the right polyline I do an additional sanity check if the left and right line actually represent a lane line. The function `validation_check_lane()` (line 572-575) triggers this check and compares the curvature as well as the distance of both polylines. If the lines are not valid I do another check for each the left and right line against the prior lines. If a line is not valid I use the average over the last 10 successfully fitted lines.
 
 #### 5. Radius of curvature of the lane and the position of the vehicle with respect to center.
 
-I calculate the lane curvature based on the polynom coefficients of the lines. The curvature of the polylines from one image to the next has a big jitter. To display a more reliable curvature of the lane I store the last 60 curvature values in the `line` class and calculate the average to get a smooth curvature value. The calculation of the curvature is done within the `line` class each time it gets updated with new value (line 101 to 114 in the code).
+I calculate the lane curvature based on the polynom coefficients of the lines. The curvature of the polylines from one image to the next has a big jitter. To display a more reliable curvature of the lane I store the last 30 curvature values in the `line` class and calculate the average to get a smooth curvature value. I chose such a high value because the curvature of lanes change slowly and to reduce the jitter in the output to make the value better readable. The calculation of the curvature is done within the `line` class each time it gets updated with new value (line 101 to 114 in the code).
 For calculating the position of the vehicle I calculate the middle point of the lane in front of the car. Based on the assumption that the camera is mounted centered on the car I calculate the offset between the middle of the road and where the middle of the picture is (taking the transformation into account). This is done in the `calc_offset_lane_markings_center()` function from line 691 to line 698.
 
 #### 6. Warp result of the lane detection back onto the road.
 
-For displaying the result of the lane detection I warped the detected markings and lane back onto the road. Function `warp_back_on_original()` (line 642 to line 662) processes the warp and overlays the detection on the undistorted input image with opencv's `addWeighted()` function. In function `warp_back_on_original()` the calculated curvature and offset is annotated on the result image. Here is the result of my lane detection:
+For displaying the result of the lane detection I warped the detected markings and lane back onto the road. Function `warp_back_on_original()` (line 642 through 662) processes the warp and overlays the detection on the undistorted input image with opencv's `addWeighted()` function. In function `warp_back_on_original()` the calculated curvature and offset is annotated on the result image. Here is the result of my lane detection:
 
 ![alt text][image8]
 
