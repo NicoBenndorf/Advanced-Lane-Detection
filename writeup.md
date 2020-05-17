@@ -19,14 +19,14 @@ The goals / steps of this project are the following:
 
 [//]: # (Image References)
 
-[image0]: ./output_images/save/0_calibration.jpg "Distorted"
-[image3]: ./output_images/save/3_input_undistorted.jpg "Road Transformed"
-[image4]: ./output_images/save/4_binary.jpg "Binary Example"
-[image5]: ./output_images/save/5_warp.jpg "Warp Example"
-[image6]: ./output_images/save/6_lane_markings.jpg "Detected lane markings"
-[image7.1]: ./output_images/save/7.1_annotated_search_korridor.jpg "Fit Visual From Scratch"
-[image7.2]: ./output_images/save/7.2_annotated_search_korridor.jpg "Fit Visual From Prior"
-[image8]: ./output_images/save/8_result_annotated.jpg "Output"
+[image0]: ./doc_images/0_calibration.jpg "Distorted"
+[image3]: ./doc_images/3_input_undistorted.jpg "Road Transformed"
+[image4]: ./doc_images/4_binary.jpg "Binary Example"
+[image5]: ./doc_images/5_warp.jpg "Warp Example"
+[image6]: ./doc_images/6_lane_markings.jpg "Detected lane markings"
+[image7.1]: ./doc_images/7.1_annotated_search_korridor.jpg "Fit Visual From Scratch"
+[image7.2]: ./doc_images/7.2_annotated_search_korridor.jpg "Fit Visual From Prior"
+[image8]: ./doc_images/8_result_annotated.jpg "Output"
 [video1]: ./project_video.mp4 "Video"
 
 ## [Rubric](https://review.udacity.com/#!/rubrics/571/view) Points

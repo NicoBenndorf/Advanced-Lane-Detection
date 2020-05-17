@@ -7,3 +7,4 @@ test_videos_output/*
 test_images/*
 test_output/*
 video_frames/*
+store_params/*
