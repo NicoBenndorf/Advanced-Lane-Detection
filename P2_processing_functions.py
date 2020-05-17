@@ -454,12 +454,17 @@ class lane_markings_detection:
             line_window1 = np.array([np.transpose(np.vstack([fitx-margin, ploty]))])
             line_window2 = np.array([np.flipud(np.transpose(np.vstack([fitx+margin, 
                                     ploty])))])
-            line_pts = np.hstack((line_window1, line_window2))
+            line_area_pts = np.hstack((line_window1, line_window2))
+
+            polyline_thickness = 2
+            line_1 = np.array([np.transpose(np.vstack([fitx-polyline_thickness, ploty]))])
+            line_2 = np.array([np.flipud(np.transpose(np.vstack([fitx+polyline_thickness, 
+                                    ploty])))])
+            line_pts = np.hstack((line_1, line_2))
 
             # Draw the lane_markings onto the warped blank image
-            cv2.fillPoly(visual_search_korridor, np.int_([line_pts]), (0,255, 0))
-            # Plot the polynomial lines onto the image
-            plt.plot(fitx, ploty, color='yellow')
+            cv2.fillPoly(visual_search_korridor, np.int_([line_area_pts]), (0,255, 0))
+            cv2.fillPoly(visual_search_korridor, np.int_([line_pts]), (255,150, 0))
             ## End visualization steps ##
         else:
             # reset and start searching from scratch 
@@ -509,13 +514,17 @@ class lane_markings_detection:
             return  points_lane_markings, visual_search_korridor, fit, fitx, ploty, success
             
 
-    def combine_and_show_search_korridor(self, binary_warped_, points_lane_markings_left, points_lane_markings_right, korridor_left, korridor_right):
+    def combine_and_show_search_korridor(self, binary_warped_, points_lane_markings_left, points_lane_markings_right, korridor_left, korridor_right, fitx_left, fitx_right, ploty):
         korridor_combined = cv2.addWeighted(korridor_left, 1, korridor_right, 1, 0)
         lane_markings_combined = cv2.addWeighted(points_lane_markings_left, 1, points_lane_markings_right, 1, 0)
         annotated_search_korridor = cv2.addWeighted(lane_markings_combined, 1, korridor_combined, 0.3, 0)
+
         if self.print_output:
             plt.imshow(annotated_search_korridor)
             plt.show()
+        if ld.write_output:
+            plt.imshow(annotated_search_korridor)
+            self.write_bgr("output_images/annotated_search_korridor.jpg", annotated_search_korridor)
 
     def combine_lane_markings(self, binary_warped_, markings_left , markings_right):
         lane_markings = cv2.addWeighted(markings_left, 1, markings_right, 1, 0)
@@ -610,7 +619,7 @@ class lane_markings_detection:
         fit_left, fitx_left, fit_right, fitx_right = self.ensure_valid_lane_and_smoothen(binary_warped_, fit_left, fitx_left, fit_right, fitx_right, base_leftx, base_rightx)
 
         colored_lane_markings = self.combine_lane_markings(binary_warped_, points_lane_markings_left, points_lane_markings_right)
-        self.combine_and_show_search_korridor(binary_warped_, points_lane_markings_left, points_lane_markings_right, visual_search_korridor_left, visual_search_korridor_right)
+        self.combine_and_show_search_korridor(binary_warped_, points_lane_markings_left, points_lane_markings_right, visual_search_korridor_left, visual_search_korridor_right, fitx_left, fitx_right, ploty_left)
         return  colored_lane_markings, fit_left, fit_right, fitx_left, fitx_right, ploty_left
 
     ## Determine the curvature of the lane_markings and vehicle position with respect to center.
@@ -703,9 +712,9 @@ class lane_markings_detection:
         if ld.write_output:
             cv2.imwrite("output_images/4_binary.jpg", img_binary)
         # define 4 source points 
-        warp_src = np.float32([[165,img.shape[0]],[596,447],[681,447],[1124,img.shape[0]]])
+        warp_src = np.float32([[165,img_shape[0]],[596,447],[681,447],[1124,img_shape[0]]])
         # define 4 destination points 
-        warp_dst = np.float32([[300,img.shape[0]],[300,0],[950,0],[950,img.shape[0]]])
+        warp_dst = np.float32([[300,img_shape[0]],[300,0],[950,0],[950,img_shape[0]]])
         img_binary_warped, perspective_M, perspective_Minv = self.warp(img_binary, warp_src, warp_dst)
         if ld.write_output:
             cv2.imwrite("output_images/5_binary_warped.jpg", img_binary_warped)
@@ -728,7 +737,7 @@ class lane_markings_detection:
     def execute_video_pipeline(self):
         white_output = 'test_videos_output/project_video.mp4'
         ## Where start_second and end_second are integer va|ues representing the start and end of the subclip
-        clip1 = VideoFileClip("project_video.mp4").subclip(36,38)
+        clip1 = VideoFileClip("project_video.mp4").subclip(26,38)
         white_clip = clip1.fl_image(self.process_image) #NOTE: this function expects color images!!
         white_clip.write_videofile(white_output, audio=False)    
 
@@ -740,7 +749,7 @@ if __name__ == "__main__":
     ld = lane_markings_detection()
     ld.print_output = False
     ld.write_output = True
-    video_pipeline = True
+    video_pipeline = False
     # initialisation
     cret, mtx, dist, rvecs, tvecs = ld.compute_camera_calibration()
     img_cal_distorted = plt.imread("camera_cal/calibration1.jpg")
@@ -754,8 +763,8 @@ if __name__ == "__main__":
     else:
         # load input image
         
-        img_input = plt.imread('video_frames/frame563.jpg')
-        # ld.process_image(img_input)
+        img_input = plt.imread('video_frames/frame1150.jpg')
+        ld.process_image(img_input)
         # img_undist = ld.undistort_image(img_input, mtx, dist)
         # img_shape = img_undist.shape
         # roi_offset = abs(200 - (img_shape[1] - 1124))/2 # depending on warp points
