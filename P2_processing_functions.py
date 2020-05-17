@@ -1,11 +1,10 @@
 #%%
+# includes
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import math
-
-# import array
 import glob
 import sys
 import os
@@ -13,7 +12,6 @@ import os
 # Import everything needed to edit/save/watch video clips
 from moviepy.editor import VideoFileClip
 from IPython.display import HTML
-
 from collections import deque
 
 
@@ -188,6 +186,7 @@ class lane_markings_detection:
         # calibrate camera
         ret, mtx, dist, rvecs, tvecs  = cv2.calibrateCamera(objpoints, imgpoints, img_cal.shape[1:], None,None)
         return ret, mtx, dist, rvecs, tvecs
+
     ## Apply distortion correction
     def undistort_image(self, img, _mtx, _dist):
         return cv2.undistort(img, _mtx, _dist, None, _mtx)
@@ -260,7 +259,6 @@ class lane_markings_detection:
     def abs_average(self, binary_image, filter_size=3):
         output_image = cv2.blur(binary_image, (filter_size, filter_size))       
         # output_image = cv2.medianBlur(binary_image, filter_size)
-
         return output_image
     
     def abs_threshold(self, image, thres_low, thres_high=255):
@@ -286,8 +284,6 @@ class lane_markings_detection:
         if self.print_output:
             plt.imshow(channels_binary, cmap='gray')
             plt.show()
-        if self.write_output:
-            cv2.imwrite("output_images/combined_binary.jpg", channels_binary)
         return channels_binary
 
     ## Apply a perspective transform to rectify binary image (bird-eye view)
@@ -660,8 +656,6 @@ class lane_markings_detection:
         result_lane_markings = cv2.addWeighted(_img_undist, 1, rewarp_annotated, 0.3, 0)
         
         result_bgr = cv2.cvtColor(result_lane_markings, cv2.COLOR_RGB2BGR)
-        if self.write_output:
-            cv2.imwrite("output_images/result.jpg", result_bgr)
         return result_lane_markings
 
     ## Output visual display of the lane_markings boundaries and numerical estimation of lane_markings curvature and vehicle position
@@ -689,8 +683,6 @@ class lane_markings_detection:
         if self.print_output:
             plt.imshow(result_annotated)
             plt.show()
-        if self.write_output:
-            cv2.imwrite("output_images/result_2.jpg", result_annotated_bgr)
         return result_annotated
     
     def calc_offset_lane_markings_center(self, _left_best_fitx, _right_best_fitx, _img_shape, _roi_offset):
@@ -702,18 +694,31 @@ class lane_markings_detection:
         offset_in_meter = offset_lane_markings_center_img * meter_per_pixel
         return offset_in_meter
 
+    def write_bgr(self, filepath, img_bgr):
+        cv2.imwrite(filepath, cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
+
     ## Video lane_markings detection ##
     def process_image(self, _img_input):
         img_shape = _img_input.shape
         roi_offset = abs(200 - (img_shape[1] - 1124))/2 # depending on warp points
         
         img_undist = self.undistort_image(_img_input, mtx, dist)
+        if ld.write_output:
+            self.write_bgr("output_images/3_input_undistorted.jpg", img_undist)
         img_binary = self.image_to_thresholded_binary(img_undist)
+        if ld.write_output:
+            cv2.imwrite("output_images/4_binary.jpg", img_binary)
         img_binary_warped, perspective_M, perspective_Minv = self.unwarp(img_binary)
+        if ld.write_output:
+            cv2.imwrite("output_images/5_binary_warped.jpg", img_binary_warped)
         lane_markings, left_fit, right_fit, left_fitx, right_fitx, ploty = self.detect_lines(img_binary_warped)
-        img_result_lane_markings = self.warp_back_on_original(imgbinary_warped_, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
+        if ld.write_output:
+            self.write_bgr("output_images/6_lane_markings.jpg", lane_markings)
+        img_result_lane_markings = self.warp_back_on_original(img_binary_warped, img_undist, left_fitx, right_fitx, ploty, perspective_Minv)
         offset_lane_markings_center = self.calc_offset_lane_markings_center(left_fitx, right_fitx, img_shape, roi_offset)
         result_annotated = self.annotate_lane_markings_markings(img_result_lane_markings, lane_markings, perspective_Minv, self.line_right.avg_radius_of_curvature, offset_lane_markings_center)
+        if ld.write_output:
+            self.write_bgr("output_images/7_result_annotated.jpg", result_annotated)
         return result_annotated
 
     def save_frames_of_video(self, _frame):
@@ -725,7 +730,7 @@ class lane_markings_detection:
     def execute_video_pipeline(self):
         white_output = 'test_videos_output/project_video.mp4'
         ## Where start_second and end_second are integer va|ues representing the start and end of the subclip
-        clip1 = VideoFileClip("project_video.mp4").subclip(0)
+        clip1 = VideoFileClip("project_video.mp4").subclip(36,38)
         white_clip = clip1.fl_image(self.process_image) #NOTE: this function expects color images!!
         white_clip.write_videofile(white_output, audio=False)    
 
@@ -736,10 +741,14 @@ if __name__ == "__main__":
     os.chdir("/home/nbenndo/Documents/Programming/Udacity/SelfDrivingCarND/CarND-Advanced-Lane-Lines/")
     ld = lane_markings_detection()
     ld.print_output = False
+    ld.write_output = True
     video_pipeline = True
     # initialisation
     cret, mtx, dist, rvecs, tvecs = ld.compute_camera_calibration()
-    
+    img_cal_distorted = plt.imread("camera_cal/calibration1.jpg")
+    ld.write_bgr("output_images/1_cal_distorted.jpg", img_cal_distorted)
+    img_cal_undist = ld.undistort_image(img_cal_distorted, mtx, dist)
+    ld.write_bgr("output_images/2_cal_undistorted.jpg", img_cal_undist)
 #%%
 
     if video_pipeline:
@@ -747,44 +756,45 @@ if __name__ == "__main__":
     else:
         # load input image
         
-        img_input = plt.imread('video_frames/frame1.jpg')
-        img_undist = ld.undistort_image(img_input, mtx, dist)
-        img_shape = img_undist.shape
-        roi_offset = abs(200 - (img_shape[1] - 1124))/2 # depending on warp points
+        img_input = plt.imread('video_frames/frame563.jpg')
+        # ld.process_image(img_input)
+        # img_undist = ld.undistort_image(img_input, mtx, dist)
+        # img_shape = img_undist.shape
+        # roi_offset = abs(200 - (img_shape[1] - 1124))/2 # depending on warp points
 
-        img_combined_binary = ld.image_to_thresholded_binary(img_undist)
-        imgbinary_warped_, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
-        img_fittet_lane_markings, lane_markings, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lines(imgbinary_warped_)
-        left_curverad, left_best_fitx, left_best_fit = ld.line_left.update(img_shape, True, left_fitx, left_fit)
-        right_curverad, right_best_fitx, right_best_fit = ld.line_right.update(img_shape,True, right_fitx, right_fit)
-        img_result_lane_markings = ld.warp_back_on_original(imgbinary_warped_, img_undist, left_best_fitx, right_best_fitx, ploty, perspective_Minv)
-        offset_lane_markings_center = ld.calc_offset_lane_markings_center(left_best_fitx, right_best_fitx, img_shape, roi_offset)
-        result_annotated = ld.annotate_lane_markings_markings(img_result_lane_markings, lane_markings, perspective_Minv, right_curverad, offset_lane_markings_center)
+        # img_combined_binary = ld.image_to_thresholded_binary(img_undist)
+        # imgbinary_warped_, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
+        # img_fittet_lane_markings, lane_markings, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lines(imgbinary_warped_)
+        # left_curverad, left_best_fitx, left_best_fit = ld.line_left.update(img_shape, True, left_fitx, left_fit)
+        # right_curverad, right_best_fitx, right_best_fit = ld.line_right.update(img_shape,True, right_fitx, right_fit)
+        # img_result_lane_markings = ld.warp_back_on_original(imgbinary_warped_, img_undist, left_best_fitx, right_best_fitx, ploty, perspective_Minv)
+        # offset_lane_markings_center = ld.calc_offset_lane_markings_center(left_best_fitx, right_best_fitx, img_shape, roi_offset)
+        # result_annotated = ld.annotate_lane_markings_markings(img_result_lane_markings, lane_markings, perspective_Minv, right_curverad, offset_lane_markings_center)
 
-        img_input = plt.imread('video_frames/frame2.jpg')
-        img_undist = ld.undistort_image(img_input, mtx, dist)
+        # img_input = plt.imread('video_frames/frame2.jpg')
+        # img_undist = ld.undistort_image(img_input, mtx, dist)
 
-        img_combined_binary = ld.image_to_thresholded_binary(img_undist)
-        imgbinary_warped_, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
-        img_fittet_lane_markings, lane_markings, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lines(imgbinary_warped_)
-        left_curverad, left_best_fitx, left_best_fit = ld.line_left.update(img_shape, True, left_fitx, left_fit)
-        right_curverad, right_best_fitx, right_best_fit = ld.line_right.update(img_shape,True, right_fitx, right_fit)
-        img_result_lane_markings = ld.warp_back_on_original(imgbinary_warped_, img_undist, left_best_fitx, right_best_fitx, ploty, perspective_Minv)
-        offset_lane_markings_center = ld.calc_offset_lane_markings_center(left_best_fitx, right_best_fitx, img_shape, roi_offset)
-        result_annotated = ld.annotate_lane_markings_markings(img_result_lane_markings, lane_markings, perspective_Minv, right_curverad, offset_lane_markings_center)
+        # img_combined_binary = ld.image_to_thresholded_binary(img_undist)
+        # imgbinary_warped_, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
+        # img_fittet_lane_markings, lane_markings, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lines(imgbinary_warped_)
+        # left_curverad, left_best_fitx, left_best_fit = ld.line_left.update(img_shape, True, left_fitx, left_fit)
+        # right_curverad, right_best_fitx, right_best_fit = ld.line_right.update(img_shape,True, right_fitx, right_fit)
+        # img_result_lane_markings = ld.warp_back_on_original(imgbinary_warped_, img_undist, left_best_fitx, right_best_fitx, ploty, perspective_Minv)
+        # offset_lane_markings_center = ld.calc_offset_lane_markings_center(left_best_fitx, right_best_fitx, img_shape, roi_offset)
+        # result_annotated = ld.annotate_lane_markings_markings(img_result_lane_markings, lane_markings, perspective_Minv, right_curverad, offset_lane_markings_center)
 
 
-        img_input = plt.imread('video_frames/frame3.jpg')
-        img_undist = ld.undistort_image(img_input, mtx, dist)
+        # img_input = plt.imread('video_frames/frame3.jpg')
+        # img_undist = ld.undistort_image(img_input, mtx, dist)
 
-        img_combined_binary = ld.image_to_thresholded_binary(img_undist)
-        imgbinary_warped_, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
-        img_fittet_lane_markings, lane_markings, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lines(imgbinary_warped_)
-        left_curverad, left_best_fitx, left_best_fit = ld.line_left.update(img_shape, True, left_fitx, left_fit)
-        right_curverad, right_best_fitx, right_best_fit = ld.line_right.update(img_shape,True, right_fitx, right_fit)
-        img_result_lane_markings = ld.warp_back_on_original(imgbinary_warped_, img_undist, left_best_fitx, right_best_fitx, ploty, perspective_Minv)
-        offset_lane_markings_center = ld.calc_offset_lane_markings_center(left_best_fitx, right_best_fitx, img_shape, roi_offset)
-        result_annotated = ld.annotate_lane_markings_markings(img_result_lane_markings, lane_markings, perspective_Minv, right_curverad, offset_lane_markings_center)
+        # img_combined_binary = ld.image_to_thresholded_binary(img_undist)
+        # imgbinary_warped_, perspective_M, perspective_Minv = ld.unwarp(img_combined_binary)
+        # img_fittet_lane_markings, lane_markings, left_fit, right_fit, left_fitx, right_fitx, ploty = ld.detect_lines(imgbinary_warped_)
+        # left_curverad, left_best_fitx, left_best_fit = ld.line_left.update(img_shape, True, left_fitx, left_fit)
+        # right_curverad, right_best_fitx, right_best_fit = ld.line_right.update(img_shape,True, right_fitx, right_fit)
+        # img_result_lane_markings = ld.warp_back_on_original(imgbinary_warped_, img_undist, left_best_fitx, right_best_fitx, ploty, perspective_Minv)
+        # offset_lane_markings_center = ld.calc_offset_lane_markings_center(left_best_fitx, right_best_fitx, img_shape, roi_offset)
+        # result_annotated = ld.annotate_lane_markings_markings(img_result_lane_markings, lane_markings, perspective_Minv, right_curverad, offset_lane_markings_center)
 
 
 
