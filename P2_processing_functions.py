@@ -289,7 +289,7 @@ class lane_markings_detection:
     ## Apply a perspective transform to rectify binary image (bird-eye view)
     def unwarp(self, _img):
         # define 4 source points 
-        src = np.float32([[200,_img.shape[0]],[597,447],[686,447],[1124,_img.shape[0]]])
+        src = np.float32([[165,_img.shape[0]],[596,447],[681,447],[1124,_img.shape[0]]])
 
         # define 4 destination points 
         dst = np.float32([[300,_img.shape[0]],[300,0],[950,0],[950,_img.shape[0]]])
