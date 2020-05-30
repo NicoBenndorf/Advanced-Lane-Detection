@@ -1,8 +1,6 @@
-## Writeup 
+# Advanced Lane Finding Project
 
-**Advanced Lane Finding Project**
-
-The goals / steps of this project are the following:
+The steps of this project are the following:
 
 * Compute the camera calibration matrix and distortion coefficients given a set of chessboard images.
 * Apply a distortion correction to raw images.
@@ -25,15 +23,11 @@ The goals / steps of this project are the following:
 [image8]: ./doc_images/8_result_annotated.jpg "Output"
 [video1]: ./project_video.mp4 "Video"
 
-## [Rubric](https://review.udacity.com/#!/rubrics/571/view) Points
-
-### Here I will consider the rubric points individually and describe how I addressed each point in my implementation.  
-
 ---
 
-### Writeup / README
+## Writeup 
 
-All functions used for the processing are located in the file called `P2_processing_functions.py` in this repository.
+All functions used for the processing are located in the file called `Advanced_lane_detection.py` in this repository.
 
 ### Camera Calibration
 
