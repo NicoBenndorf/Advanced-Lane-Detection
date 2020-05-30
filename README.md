@@ -37,26 +37,26 @@ The code for this step is contained in the functions `compute_camera_calibration
 
 First I prepare "object points", which will be the (x, y, z) coordinates of the chessboard corners in the world. Here I am assuming the chessboard is fixed on the (x, y) plane at z=0, such that the object points are the same for each calibration image.  Thus, `objp` is just a replicated array of coordinates, and `objpoints` will be appended with a copy of it every time I successfully detect all chessboard corners in a test image.  `imgpoints` will be appended with the (x, y) pixel position of each of the corners in the image plane with each successful chessboard detection.  
 
-I then used the output `objpoints` and `imgpoints` to compute the camera calibration and distortion coefficients using the `cv2.calibrateCamera()` function.  I applied this distortion correction to the test image using the `cv2.undistort()` function and obtained this result: 
+I then use the output `objpoints` and `imgpoints` to compute the camera calibration and distortion coefficients using the `cv2.calibrateCamera()` function.  I applied this distortion correction to the test image using the `cv2.undistort()` function and obtained this result: 
 
 ![alt text][image0]
 
 ### Pipeline
 
-#### 1. Input image distortion correction.
+#### 1. Input image distortion correction
 
 In this step I use the distortion coefficients from the calibration step and `undistort_image()` to undistort the input image. This is the result of the undistortion for one of the input images:
 ![alt text][image3]
 
-#### 2. Color transforms to create a thresholded binary image.
+#### 2. Color transforms to create a thresholded binary image
 
-For seperating the lane markings from the background I convert the input image into the HSL color space and use a combination of thresholds on different color channels to generate a binary image (thresholding steps in function `image_to_thresholded_binary()` at lines 269 through 287 and `extract_single_color()` at lines 195 through 210). This way I can detect the white lane markings by thresholding based on the L (lightness) value. To improve detection of the yellow lane markings filtering the image by the corresponding H (hue) values helps for a good detection especially in darker areas (shadows etc.). Here's an example of my output for this step:
-
+For seperating the lane markings from the background I convert the input image into the HSL color space and use a combination of thresholds on different color channels to generate a binary image (thresholding steps in function `image_to_thresholded_binary()` at lines 269 through 287 and `extract_single_color()` at lines 195 through 210). This way I can detect the white lane markings by thresholding based on the L (lightness) value. To improve detection of the yellow lane markings filtering the image by the corresponding H (hue) values helps for a good detection especially in darker areas (shadows etc.). The result of both thresholded images are then combined. Here's an example of the output for this step:
 ![alt text][image4]
+As you can see the lane markings are selected and the rest of the street got cut out quite nicely, particularly in the region of interest which is our lane. There are other detections that are outside of our ROI, such as the landscape in the background and detections of the cars on other lanes. We do not have to worry about these detections because these parts of the image will get cut out in the perspective transform which is the next step in the pipeline.
 
-#### 3. Perform a perspective transform to generate a birds-eye-view.
+#### 3. Perform a perspective transform to generate a "birds-eye view"
 
-The code for my perspective transform includes a function called `warp()`, which appears in lines 290 through 301.  The `warp()` function takes as inputs an image (`img`), as well as source (`src`) and destination (`dst`) points. I chose to hardcode the source and destination points in the following manner:
+The code for my perspective transform includes a function called `warp()` (which appears in lines 290 through 301).  This `warp()` function takes as inputs an image (`img`), as well as source (`src`) and destination (`dst`) points. I choose to select and hardcode the source and destination points in the following manner to cut out the relevant ROI:
 
 ```python
 src = np.float32(
@@ -71,22 +71,22 @@ dst = np.float32(
     [950,img.shape[0]],
 ```
 
-This resulted in the following source and destination points:
+This results in the following source and destination points:
 
 | Source        | Destination   | 
 |:-------------:|:-------------:| 
 | 165, 720      | 300, 720      | 
-| 596, 447      | 300, 0        |
-| 681, 447      | 950, 0        |
+| 596, 447      | 300,   0      |
+| 681, 447      | 950,   0      |
 | 1124, 720     | 950, 720      |
 
-I verified that my perspective transform was working as expected by drawing the `src` and `dst` points onto a test image and its warped counterpart to verify that the lines appear parallel in the warped image.
+I verify that my perspective transform is working as expected by drawing the `src` and `dst` points onto a test image and its warped counterpart to verify that the lines appear parallel in the warped image.
 
 ![alt text][image5]
 
-#### 4. Identify lane-line pixels and fit their positions with a polynomial.
+#### 4. Identify lane-line pixels and fit their positions with a polynomial
 
-Now I have detected the lane markings and warped the input image to birds-eye-view. As next step I want to identify the pixels that are part of the left and right lane-markings to fit a polynomial. For this we can use two different approaches dependent on if we have a prior detection or not.
+Now I have detected the lane markings and warped the input image to "birds-eye view". As next step I want to identify the pixels that are part of the left and right lane-markings to fit a polynomial. For this we can use two different approaches dependent on if we have a prior detection or not.
 
 ##### Search from scratch
 
@@ -96,13 +96,13 @@ For seperating the left and right lane-markings I devide the image vertically (a
 
 ##### Search from prior
 
-In the case that we have already found a the polylines before we do not have to search from scratch again. We can search along the prior detected polylines and save processing time. For this I add a margin aroung the prior polylines and select all pixels within. Then I can fit my new polylines again. In my code this is done in the `search_polynomial_from_prior()` function. The approach to search from a prior polynom can result in a bad detection so I implemented a check if the new polylines make sence (in the code from line 548 to 575. Triggered by the function `validation_check_line()` ). This check compares the fitted line against the last 10 detections (realised with a `line` class in line 35 to 132 that stores the last 10 fitted lines). The output of the search from prior is displayed in the following image:
+In the case that we have already found polylines before, we do not have to search from scratch again. We can search along the prior detected polylines and save processing time. For this I add a margin aroung the prior polylines and select all pixels within - highlighted by the green area. Then I can fit my new polylines again - which are visualized as brown lines. In my code this is done in the `search_polynomial_from_prior()` function. The approach to search from a prior polynom can result in a bad detection so I implemented a check if the new polylines make sence (in the code from line 548 to 575, which gets triggered by the function `validation_check_line()` ). This check compares the fitted line against the last 10 detections (realised with a `line` class in line 35 to 132 that stores the last 10 fitted lines). The output of the search from prior is displayed in the following image:
 
 ![alt text][image7.2]
 
 ##### Sanity check and smoothing
 
-After fitting the left and the right polyline I do an additional sanity check if the left and right line actually represent a lane line. The function `validation_check_lane()` (line 572-575) triggers this check and compares the curvature as well as the distance of both polylines. If the lines are not valid I do another check for each the left and right line against the prior lines. If a line is not valid I use the average over the last 10 successfully fitted lines.
+After fitting the left and the right polyline I do an additional sanity check if the left and right line actually represent a lane line. The function `validation_check_lane()` (line 572-575) triggers this check and compares the curvature as well as the distance of both polylines. If the lines are not valid I do another check for each the left and right line against the prior lines. To check if a line is not valid I use the average over the last 10 successfully fitted lines.
 
 #### 5. Radius of curvature of the lane and the position of the vehicle with respect to center.
 
